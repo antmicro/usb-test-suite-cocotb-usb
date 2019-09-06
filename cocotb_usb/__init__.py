@@ -1,0 +1,1 @@
+name = "cocotb_usb"
