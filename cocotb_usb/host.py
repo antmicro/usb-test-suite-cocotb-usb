@@ -14,12 +14,9 @@ from .utils import *
 from wishbone import WishboneMaster, WBOp
 
 class UsbTest:
-    def __init__(self, dut, csr_file):
+    def __init__(self, dut):
         self.dut = dut
-        self.csrs = dict()
-        self.csrs = parse_csr(csr_file)
         cocotb.fork(Clock(dut.clk48, 20800, 'ps').start())
-        self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
 
         # Set the signal "test_name" to match this test
         import inspect
@@ -31,51 +28,16 @@ class UsbTest:
     def reset(self):
 
         self.dut.reset = 1
-        yield RisingEdge(self.dut.clk12)
+        self.dut._log.info("clk12 wait")
+        yield RisingEdge(self.dut.clk48)
         self.dut.reset = 0
-        yield RisingEdge(self.dut.clk12)
+        self.dut._log.info("clk12 wait2")
+        yield RisingEdge(self.dut.clk48)
 
         self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
 
         yield self.disconnect()
-
-        # Enable endpoint 0
-        yield self.write(self.csrs['usb_enable_out0'], 0xff)
-        yield self.write(self.csrs['usb_enable_out1'], 0xff)
-        yield self.write(self.csrs['usb_enable_in0'], 0xff)
-        yield self.write(self.csrs['usb_enable_in1'], 0xff)
-        yield self.write(self.csrs['usb_setup_ev_enable'], 0xff)
-        yield self.write(self.csrs['usb_in_ev_enable'], 0xff)
-        yield self.write(self.csrs['usb_out_ev_enable'], 0xff)
-
-        yield self.write(self.csrs['usb_setup_ev_pending'], 0xff)
-        yield self.write(self.csrs['usb_in_ev_pending'], 0xff)
-        yield self.write(self.csrs['usb_out_ev_pending'], 0xff)
-        yield self.write(self.csrs['usb_address'], 0)
-
-    @cocotb.coroutine
-    def write(self, addr, val):
-        yield self.wb.write(addr, val)
-
-    @cocotb.coroutine
-    def read(self, addr):
-        value = yield self.wb.read(addr)
-        raise ReturnValue(value)
-
-    @cocotb.coroutine
-    def connect(self):
-        USB_PULLUP_OUT = self.csrs['usb_pullup_out']
-        yield self.write(USB_PULLUP_OUT, 1)
-
-    @cocotb.coroutine
-    def clear_pending(self, _ep):
-        yield Timer(0)
-
-    @cocotb.coroutine
-    def disconnect(self):
-        USB_PULLUP_OUT = self.csrs['usb_pullup_out']
-        yield self.write(USB_PULLUP_OUT, 0)
 
     def assertEqual(self, a, b, msg):
         if a != b:
@@ -90,6 +52,20 @@ class UsbTest:
             EndpointType.epnum(epaddr),
             EndpointType.epdir(epaddr).name,
             msg) % args)
+
+    @cocotb.coroutine
+    def connect(self):
+        #TODO: Not functional yet
+        # Device side connect should be activating VBUS
+        if False:
+            yield
+
+    @cocotb.coroutine
+    def disconnect(self):
+        #TODO: Not functional yet
+        # Device side connect should be deactivating VBUS
+        if False:
+            yield
 
     # Host->Device
     @cocotb.coroutine
@@ -148,7 +124,6 @@ class UsbTest:
         yield self.host_send_token_packet(PID.OUT, addr, epnum)
         yield self.host_send_data_packet(data01, data)
         yield self.host_expect_packet(handshake_packet(expected), "Expected {} packet.".format(expected))
-
 
     @cocotb.coroutine
     def host_setup(self, addr, epnum, data):
@@ -238,6 +213,88 @@ class UsbTest:
     def host_expect_data_packet(self, pid, data):
         assert pid in (PID.DATA0, PID.DATA1), pid
         yield self.host_expect_packet(data_packet(pid, data), "Expected %s packet with %r" % (pid.name, data))
+
+    @cocotb.coroutine
+    def control_transfer_out(self, addr, setup_data, descriptor_data=None):
+        epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
+        epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
+
+        # Data sanity check
+        if (setup_data[0] & 0x80) == 0x80:
+            raise Exception("setup_data indicated an IN transfer, but you requested an OUT transfer")
+        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception("setup_data indicates data, but no descriptor data was specified")
+        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception("setup_data indicates no data, but descriptor data was specified")
+
+        # Setup stage
+        self.dut._log.info("setup stage")
+        yield self.transaction_setup(addr, setup_data)
+
+        # Data stage
+        if descriptor_data is not None:
+            self.dut._log.info("data stage")
+            yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
+        if descriptor_data is not None:
+            yield RisingEdge(self.dut.clk12)
+
+        # Status stage
+        self.dut._log.info("status stage")
+
+        yield self.transaction_status_in(addr, epaddr_in)
+        yield RisingEdge(self.dut.clk12)
+
+
+
+class UsbTestValenty(UsbTest):
+    def __init__(self, dut, csr_file):
+        super().__init__(dut)
+        self.csrs = dict()
+        self.csrs = parse_csr(csr_file)
+        self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
+
+    @cocotb.coroutine
+    def reset(self):
+        super().reset()
+
+        # Enable endpoint 0
+        yield self.write(self.csrs['usb_enable_out0'], 0xff)
+        yield self.write(self.csrs['usb_enable_out1'], 0xff)
+        yield self.write(self.csrs['usb_enable_in0'], 0xff)
+        yield self.write(self.csrs['usb_enable_in1'], 0xff)
+        yield self.write(self.csrs['usb_setup_ev_enable'], 0xff)
+        yield self.write(self.csrs['usb_in_ev_enable'], 0xff)
+        yield self.write(self.csrs['usb_out_ev_enable'], 0xff)
+
+        yield self.write(self.csrs['usb_setup_ev_pending'], 0xff)
+        yield self.write(self.csrs['usb_in_ev_pending'], 0xff)
+        yield self.write(self.csrs['usb_out_ev_pending'], 0xff)
+        yield self.write(self.csrs['usb_address'], 0)
+
+    @cocotb.coroutine
+    def write(self, addr, val):
+        yield self.wb.write(addr, val)
+
+    @cocotb.coroutine
+    def read(self, addr):
+        value = yield self.wb.read(addr)
+        raise ReturnValue(value)
+
+    @cocotb.coroutine
+    def connect(self):
+        USB_PULLUP_OUT = self.csrs['usb_pullup_out']
+        yield self.write(USB_PULLUP_OUT, 1)
+
+    @cocotb.coroutine
+    def clear_pending(self, _ep):
+        yield Timer(0)
+
+    @cocotb.coroutine
+    def disconnect(self):
+        USB_PULLUP_OUT = self.csrs['usb_pullup_out']
+        yield self.write(USB_PULLUP_OUT, 0)
+
+
 
     @cocotb.coroutine
     def pending(self, ep):
