@@ -21,37 +21,21 @@ class UsbTest:
         # Set the signal "test_name" to match this test
         import inspect
         tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
-        tn.buff = inspect.stack()[1][3]
+        tn.buff = inspect.stack()[2][3]
         self.dut.test_name = tn
 
     @cocotb.coroutine
     def reset(self):
 
         self.dut.reset = 1
-        self.dut._log.info("clk12 wait")
-        yield RisingEdge(self.dut.clk48)
+        yield RisingEdge(self.dut.clk12)
         self.dut.reset = 0
-        self.dut._log.info("clk12 wait2")
-        yield RisingEdge(self.dut.clk48)
+        yield RisingEdge(self.dut.clk12)
 
         self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
 
         yield self.disconnect()
-
-    def assertEqual(self, a, b, msg):
-        if a != b:
-            raise TestFailure("{} != {} - {}".format(a, b, msg))
-
-    def assertSequenceEqual(self, a, b, msg):
-        if a != b:
-            raise TestFailure("{} vs {} - {}".format(a, b, msg))
-
-    def print_ep(self, epaddr, msg, *args):
-        self.dut._log.info("ep(%i, %s): %s" % (
-            EndpointType.epnum(epaddr),
-            EndpointType.epdir(epaddr).name,
-            msg) % args)
 
     @cocotb.coroutine
     def connect(self):
@@ -66,6 +50,20 @@ class UsbTest:
         # Device side connect should be deactivating VBUS
         if False:
             yield
+
+    def assertEqual(self, a, b, msg):
+        if a != b:
+            raise TestFailure("{} != {} - {}".format(a, b, msg))
+
+    def assertSequenceEqual(self, a, b, msg):
+        if a != b:
+            raise TestFailure("{} vs {} - {}".format(a, b, msg))
+
+    def print_ep(self, epaddr, msg, *args):
+        self.dut._log.info("ep(%i, %s): %s" % (
+            EndpointType.epnum(epaddr),
+            EndpointType.epdir(epaddr).name,
+            msg) % args)
 
     # Host->Device
     @cocotb.coroutine
@@ -215,6 +213,54 @@ class UsbTest:
         yield self.host_expect_packet(data_packet(pid, data), "Expected %s packet with %r" % (pid.name, data))
 
     @cocotb.coroutine
+    def transaction_setup(self, addr, data, epnum=0):
+        xmit = cocotb.fork(self.host_setup(addr, epnum, data))
+        yield xmit.join()
+
+    @cocotb.coroutine
+    def transaction_data_out(self, addr, ep, data, chunk_size=64, expected=PID.ACK):
+        epnum = EndpointType.epnum(ep)
+        datax = PID.DATA1
+
+        for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
+            self.dut._log.warning("Sending {} bytes to device".format(len(chunk)))
+            xmit = cocotb.fork(self.host_send(datax, addr, epnum, chunk, expected))
+            yield xmit.join()
+
+    @cocotb.coroutine
+    def transaction_data_in(self, addr, ep, data, chunk_size=64):
+        epnum = EndpointType.epnum(ep)
+        datax = PID.DATA1
+        sent_data = 0
+        for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
+            sent_data = 1
+            self.dut._log.debug("Actual data we're expecting: {}".format(chunk))
+
+            recv = cocotb.fork(self.host_recv(datax, addr, epnum, chunk))
+            yield recv.join()
+
+            if datax == PID.DATA0:
+                datax = PID.DATA1
+
+        if not sent_data:
+            recv = cocotb.fork(self.host_recv(datax, addr, epnum, []))
+            yield recv.join()
+
+    @cocotb.coroutine
+    def transaction_status_in(self, addr, ep):
+        epnum = EndpointType.epnum(ep)
+        assert EndpointType.epdir(ep) == EndpointType.IN
+        xmit = cocotb.fork(self.host_recv(PID.DATA1, addr, epnum, []))
+        yield xmit.join()
+
+    @cocotb.coroutine
+    def transaction_status_out(self, addr, ep):
+        epnum = EndpointType.epnum(ep)
+        assert EndpointType.epdir(ep) == EndpointType.OUT
+        xmit = cocotb.fork(self.host_send(PID.DATA1, addr, epnum, []))
+        yield xmit.join()
+
+    @cocotb.coroutine
     def control_transfer_out(self, addr, setup_data, descriptor_data=None):
         epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
         epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
@@ -244,6 +290,35 @@ class UsbTest:
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
 
+    @cocotb.coroutine
+    def control_transfer_in(self, addr, setup_data, descriptor_data=None):
+        epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
+        epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
+
+        # Data sanity check
+        if (setup_data[0] & 0x80) == 0x00:
+            raise Exception("setup_data indicated an OUT transfer, but you requested an IN transfer")
+        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception("setup_data indicates data, but no descriptor data was specified")
+        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception("setup_data indicates no data, but descriptor data was specified")
+
+        # Setup stage
+        self.dut._log.info("setup stage")
+        yield self.transaction_setup(addr, setup_data)
+
+        # Data stage
+        if descriptor_data is not None:
+            self.dut._log.info("data stage")
+            yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
+
+        # Give the signal one clock cycle to perccolate through the event manager
+        yield RisingEdge(self.dut.clk12)
+
+        # Status stage
+        self.dut._log.info("status stage")
+        yield self.transaction_status_out(addr, epaddr_out)
+        yield RisingEdge(self.dut.clk12)
 
 
 class UsbTestValenty(UsbTest):
@@ -255,7 +330,16 @@ class UsbTestValenty(UsbTest):
 
     @cocotb.coroutine
     def reset(self):
-        super().reset()
+
+        self.dut.reset = 1
+        yield RisingEdge(self.dut.clk12)
+        self.dut.reset = 0
+        yield RisingEdge(self.dut.clk12)
+
+        self.dut.usb_d_p = 1
+        self.dut.usb_d_n = 0
+
+        yield self.disconnect()
 
         # Enable endpoint 0
         yield self.write(self.csrs['usb_enable_out0'], 0xff)
@@ -293,8 +377,6 @@ class UsbTestValenty(UsbTest):
     def disconnect(self):
         USB_PULLUP_OUT = self.csrs['usb_pullup_out']
         yield self.write(USB_PULLUP_OUT, 0)
-
-
 
     @cocotb.coroutine
     def pending(self, ep):
@@ -464,20 +546,6 @@ class UsbTestValenty(UsbTest):
         _epnum = EndpointType.epnum(ep)
         for b in data:
             yield self.write(self.csrs['usb_in_data'], b)
-
-    @cocotb.coroutine
-    def transaction_status_in(self, addr, ep):
-        epnum = EndpointType.epnum(ep)
-        assert EndpointType.epdir(ep) == EndpointType.IN
-        xmit = cocotb.fork(self.host_recv(PID.DATA1, addr, epnum, []))
-        yield xmit.join()
-
-    @cocotb.coroutine
-    def transaction_status_out(self, addr, ep):
-        epnum = EndpointType.epnum(ep)
-        assert EndpointType.epdir(ep) == EndpointType.OUT
-        xmit = cocotb.fork(self.host_send(PID.DATA1, addr, epnum, []))
-        yield xmit.join()
 
     @cocotb.coroutine
     def control_transfer_out(self, addr, setup_data, descriptor_data=None):
