@@ -95,7 +95,6 @@ class EndpointDescriptor(Descriptor):
                 self.bDescriptorType,
                 self.bEndpointAddress,
                 self.bmAttributes,
-                self.wMaxPacketSize,
                 self.wMaxPacketSize >> 8,
                 self.wMaxPacketSize & 0x00FF,
                 self.bInterval]
