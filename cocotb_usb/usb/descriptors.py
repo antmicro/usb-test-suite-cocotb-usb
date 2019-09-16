@@ -1,3 +1,5 @@
+from enum import Enum
+
 class Descriptor():
     class LangId():
         UNSPECIFIED = 0x0000
@@ -14,26 +16,43 @@ class Descriptor():
         INTERFACE_POWER = 8
 
 class DeviceDescriptor(Descriptor):
-    def build(bLength, bcdUSB, bDeviceClass,
+    def __init__(self, bLength, bcdUSB, bDeviceClass,
             bDeviceSubClass, bDeviceProtocol, bMaxPacketSize0, idVendor, idProduct, bcdDevice,
             iManufacturer, iProduct, iSerialNumber, bNumConfigurations, bDescriptorType=Descriptor.Types.DEVICE):
-        return [bLength,
-                bDescriptorType,
-                bcdUSB >> 8,
-                bcdUSB & 0x00FF,
-                bDeviceClass,
-                bDeviceSubClass,
-                bDeviceProtocol,
-                bMaxPacketSize0,
-                idVendor >> 8,
-                idVendor & 0x00FF,
-                idProduct >> 8, idProduct & 0x00FF,
-                bcdDevice >> 8,
-                bcdDevice & 0x00FF,
-                iManufacturer,
-                iProduct,
-                iSerialNumber,
-                bNumConfigurations]
+        self.bLength            = bLength
+        self.bDescriptorType    = bDescriptorType
+        self.bcdUSB             = bcdUSB
+        self.bDeviceClass       = bDeviceClass
+        self.bDeviceSubClass    = bDeviceSubClass
+        self.bDeviceProtocol    = bDeviceProtocol
+        self.bMaxPacketSize0    = bMaxPacketSize0
+        self.idVendor           = idVendor
+        self.idProduct          = idProduct
+        self.bcdDevice          = bcdDevice
+        self.iManufacturer      = iManufacturer
+        self.iProduct           = iProduct
+        self.iSerialNumber      = iSerialNumber
+        self.bNumConfigurations = bNumConfigurations
+
+    def get(self):
+        return [self.bLength,
+                self.bDescriptorType,
+                self.bcdUSB >> 8,
+                self.bcdUSB & 0x00FF,
+                self.bDeviceClass,
+                self.bDeviceSubClass,
+                self.bDeviceProtocol,
+                self.bMaxPacketSize0,
+                self.idVendor >> 8,
+                self.idVendor & 0x00FF,
+                self.idProduct >> 8,
+                self.idProduct & 0x00FF,
+                self.bcdDevice >> 8,
+                self.bcdDevice & 0x00FF,
+                self.iManufacturer,
+                self.iProduct,
+                self.iSerialNumber,
+                self.bNumConfigurations]
 
 class ConfigDescriptor(Descriptor):
     class Attributes():
@@ -42,7 +61,7 @@ class ConfigDescriptor(Descriptor):
         REMOTE_WAKEUP = 1<<5
         # Reserved 1<<4..0
 
-    def build(bLength,
+    def __init__(self, bLength,
             wTotalLength,
             bNumInterfaces,
             bConfigurationValue,
@@ -50,43 +69,70 @@ class ConfigDescriptor(Descriptor):
             bmAttributes,
             bMaxPower,
             bDescriptorType = Descriptor.Types.CONFIGURATION):
-        return [bLength,
-                bDescriptorType,
-                wTotalLength >> 8,
-                wTotalLength & 0x00FF,
-                bNumInterfaces,
-                bConfigurationValue,
-                iConfiguration,
-                # 1<<7 must be set to 1 for historical reasons
-                1<<7 | bmAttributes,
-                bMaxPower] #TODO: Allow returning all related interface and endpoint descriptors
+         self.bLength             =  bLength
+         self.wTotalLength        =  wTotalLength
+         self.bNumInterfaces      =  bNumInterfaces
+         self.bConfigurationValue =  bConfigurationValue
+         self.iConfiguration      =  iConfiguration
+         self.bmAttributes        =  bmAttributes
+         self.bMaxPower           =  bMaxPower
+         self.bDescriptorType     =  bDescriptorType
 
-class StringDescriptor(Descriptor):
-    def buildIdx0(wLangIdList,
+    def get(self):
+        return [self.bLength,
+                self.bDescriptorType,
+                self.wTotalLength >> 8,
+                self.wTotalLength & 0x00FF,
+                self.bNumInterfaces,
+                self.bConfigurationValue,
+                self.iConfiguration,
+                # 1<<7 must be set to 1 for historical reasons
+                1<<7 | self.bmAttributes,
+                self.bMaxPower] #TODO: Allow returning all related interface and endpoint descriptors
+
+class StringDescriptorZero(Descriptor):
+    # This one is different than other string descriptors
+    # It contains an array of supported LanguageIds
+    def __init__(self, wLangIdList,
             bLength = None,
             bDescriptorType = Descriptor.Types.STRING
             ):
+        self.wLangId         = wLangIdList
+        self.bLength         = bLength
+        self.bDescriptorType = bDescriptorType
+
+    def get(self):
         descriptor = []
-        for i in wLangIdList:
+        for i in self.wLangId:
             descriptor.append(i >> 8)
             descriptor.append(i & 0x00FF)
-        descriptor.insert(0, bDescriptorType)
-        if bLength == None:
+        descriptor.insert(0, self.bDescriptorType)
+        if self.bLength == None:
             bLength = 1 + len(descriptor)
+        else:
+            bLength = self.bLength
         descriptor.insert(0, bLength)
         return descriptor
 
-    def build(bString,
+class StringDescriptor(Descriptor):
+    def __init__(self,bString,
             bLength = None,
             bDescriptorType = Descriptor.Types.STRING
             ):
+        self.bString         = bString
+        self.bLength         = bLength
+        self.bDescriptorType = bDescriptorType
+
+    def get(self):
         descriptor = []
-        for c in bString:
+        for c in self.bString:
             descriptor.append(ord(c) >> 8)
             descriptor.append(ord(c) & 0x00FF)
-        descriptor.insert(0, bDescriptorType)
-        if bLength == None:
+        descriptor.insert(0, self.bDescriptorType)
+        if self.bLength == None:
             bLength = 1 + len(descriptor)
+        else:
+            bLength = self.bLength
         descriptor.insert(0, bLength)
         return descriptor
 
