@@ -54,6 +54,88 @@ class DeviceDescriptor(Descriptor):
                 self.iSerialNumber,
                 self.bNumConfigurations]
 
+class EndpointDescriptor(Descriptor):
+    class Direction:
+        OUT = 0
+        IN = 1
+
+    class TransferType:
+        CONTROL = 0
+        ISOCHRONOUS = 1
+        BULK = 2
+        INTERRUPT = 3
+
+    class SynchronizationType:
+        NO = 0
+        ASYNC = 1
+        ADAPTIVE = 2
+        SYNC = 3
+
+    class UsageType:
+        DATA = 0
+        FEEDBACK = 1
+        IFDATA = 2 # Implicit feedback Data endpoint
+        # Reserved - 3
+
+    def __init__(self, bLength,
+            bEndpointAddress,
+            bmAttributes,
+            wMaxPacketSize,
+            bInterval,
+            bDescriptorType = Descriptor.Types.ENDPOINT):
+        self.bLength          = bLength
+        self.bEndpointAddress = bEndpointAddress
+        self.bmAttributes     = bmAttributes
+        self.wMaxPacketSize   = wMaxPacketSize
+        self.bInterval        = bInterval
+        self.bDescriptorType  = bDescriptorType
+
+    def get(self):
+        return [self.bLength,
+                self.bDescriptorType,
+                self.bEndpointAddress,
+                self.bmAttributes,
+                self.wMaxPacketSize,
+                self.wMaxPacketSize >> 8,
+                self.wMaxPacketSize & 0x00FF,
+                self.bInterval]
+
+class InterfaceDescriptor(Descriptor):
+    def __init__(self, bLength,
+            bInterfaceNumber,
+            bAlternateSetting,
+            bNumEndpoints,
+            bInterfaceClass,
+            bInterfaceSubclass,
+            bInterfaceProtocol,
+            iInterface,
+            bDescriptorType = Descriptor.Types.INTERFACE,
+            endpoints = []):
+        self.bLength            = bLength
+        self.bInterfaceNumber   = bInterfaceNumber
+        self.bAlternateSetting  = bAlternateSetting
+        self.bNumEndpoints      = bNumEndpoints
+        self.bInterfaceClass    = bInterfaceClass
+        self.bInterfaceSubclass = bInterfaceSubclass
+        self.bInterfaceProtocol = bInterfaceProtocol
+        self.iInterface         = iInterface
+        self.bDescriptorType    = bDescriptorType
+        self.endpoints          = endpoints
+
+    def get(self):
+        desc = [self.bLength,
+                self.bInterfaceNumber,
+                self.bAlternateSetting,
+                self.bNumEndpoints,
+                self.bInterfaceClass,
+                self.bInterfaceSubclass,
+                self.bInterfaceProtocol,
+                self.iInterface,
+                self.bDescriptorType]
+        desc += [b for e in self.endpoints for b in e.get()]
+        return desc
+
+
 class ConfigDescriptor(Descriptor):
     class Attributes():
         NONE = 0
@@ -68,7 +150,8 @@ class ConfigDescriptor(Descriptor):
             iConfiguration,
             bmAttributes,
             bMaxPower,
-            bDescriptorType = Descriptor.Types.CONFIGURATION):
+            bDescriptorType = Descriptor.Types.CONFIGURATION,
+            interfaces = []):
          self.bLength             =  bLength
          self.wTotalLength        =  wTotalLength
          self.bNumInterfaces      =  bNumInterfaces
@@ -77,9 +160,10 @@ class ConfigDescriptor(Descriptor):
          self.bmAttributes        =  bmAttributes
          self.bMaxPower           =  bMaxPower
          self.bDescriptorType     =  bDescriptorType
+         self.interfaces          =  interfaces
 
     def get(self):
-        return [self.bLength,
+        desc = [self.bLength,
                 self.bDescriptorType,
                 self.wTotalLength >> 8,
                 self.wTotalLength & 0x00FF,
@@ -88,7 +172,9 @@ class ConfigDescriptor(Descriptor):
                 self.iConfiguration,
                 # 1<<7 must be set to 1 for historical reasons
                 1<<7 | self.bmAttributes,
-                self.bMaxPower] #TODO: Allow returning all related interface and endpoint descriptors
+                self.bMaxPower]
+        desc += [b for i in self.interfaces for b in i.get()]
+        return desc
 
 class StringDescriptorZero(Descriptor):
     # This one is different than other string descriptors
