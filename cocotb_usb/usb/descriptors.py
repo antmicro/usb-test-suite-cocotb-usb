@@ -221,37 +221,6 @@ class StringDescriptor(Descriptor):
         descriptor.insert(0, bLength)
         return descriptor
 
-class RequestType():
-    # Format constants from USB Spec 9.3
-    # Direction
-    HOST_TO_DEVICE = 0<<7
-    DEVICE_TO_HOST = 1<<7
-    # Type
-    STANDARD = 0<<5
-    CLASS = 1<<5
-    VENDOR = 2<<5
-    RESERVED = 3<<5
-    # Recipient
-    DEVICE = 0
-    INTERFACE = 1
-    ENDPOINT = 2
-    OTHER = 3
-
-class RequestCodes():
-    GET_STATUS = 0
-    CLEAR_FEATURE = 1
-    # Reserved for future use = 2
-    SET_FEATURE = 3
-    # Reserved for future use = 4
-    SET_ADDRESS = 5
-    GET_DESCRIPTOR = 6
-    SET_DESCRIPTOR = 7
-    GET_CONFIGURATION = 8
-    SET_CONFIGURATION = 9
-    GET_INTERFACE = 10
-    SET_INTERFACE = 11
-    SYNCH_FRAME = 12
-
 class USBDeviceRequest():
     class Type():
         # Format constants from USB Spec 9.3
