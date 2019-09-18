@@ -17,7 +17,7 @@ from wishbone import WishboneMaster, WBOp
 class UsbTest:
     def __init__(self, dut):
         self.dut = dut
-        cocotb.fork(Clock(dut.clk48, 20800, 'ps').start())
+        cocotb.fork(Clock(dut.clk48_host, 20800, 'ps').start())
 
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
@@ -34,23 +34,23 @@ class UsbTest:
         self.dut.usb_d_n = 0
         self.address = 0
 
-        yield ClockCycles(self.dut.clk12,10,rising=True)
+        yield ClockCycles(self.dut.clk48_host,10,rising=True)
         self.dut.reset = 0
-        yield ClockCycles(self.dut.clk12,10,rising=True)
+        yield ClockCycles(self.dut.clk48_host,10,rising=True)
 
     @cocotb.coroutine
     def connect(self):
         # FS connect - DP pulled high
         self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
-        yield ClockCycles(self.dut.clk12, 10)
+        yield ClockCycles(self.dut.clk48_host, 10)
 
     @cocotb.coroutine
     def disconnect(self):
         # Detached - pulldowns on host side
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
-        yield ClockCycles(self.dut.clk12, 10)
+        yield ClockCycles(self.dut.clk48_host, 10)
         # Device address should have reset
         self.address = 0
 
@@ -99,7 +99,7 @@ class UsbTest:
                 self.dut.usb_d_n <= 1
             else:
                 raise TestFailure("Unknown value: %s" % v)
-            yield RisingEdge(self.dut.clk48)
+            yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
     def host_send_token_packet(self, pid, addr, ep):
@@ -166,7 +166,7 @@ class UsbTest:
             tx = self.dut.usb_tx_en
             if tx == 1:
                 break
-            yield RisingEdge(self.dut.clk48)
+            yield RisingEdge(self.dut.clk48_host)
             bit_times = bit_times + 1
         if tx != 1:
             raise TestFailure("No packet started, " + msg)
@@ -185,7 +185,7 @@ class UsbTest:
         result = ""
         for i in range(0, 4096):
             result += current()
-            yield RisingEdge(self.dut.clk48)
+            yield RisingEdge(self.dut.clk48_host)
             if self.dut.usb_tx_en != 1:
                 break
         if tx == 1:
@@ -285,13 +285,13 @@ class UsbTest:
             self.dut._log.info("data stage")
             yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
         if descriptor_data is not None:
-            yield RisingEdge(self.dut.clk12)
+            yield RisingEdge(self.dut.clk48_host)
 
         # Status stage
         self.dut._log.info("status stage")
 
         yield self.transaction_status_in(addr, epaddr_in)
-        yield RisingEdge(self.dut.clk12)
+        yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
     def control_transfer_in(self, addr, setup_data, descriptor_data=None):
@@ -316,12 +316,12 @@ class UsbTest:
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
 
         # Give the signal one clock cycle to perccolate through the event manager
-        yield RisingEdge(self.dut.clk12)
+        yield RisingEdge(self.dut.clk48_host)
 
         # Status stage
         self.dut._log.info("status stage")
         yield self.transaction_status_out(addr, epaddr_out)
-        yield RisingEdge(self.dut.clk12)
+        yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
     def set_device_address(self, address):
@@ -366,6 +366,16 @@ class UsbTest:
             response
         )
 
+    @cocotb.coroutine
+    def set_configuration(self, idx):
+        # Set configuration
+        request = setConfigurationRequest(idx)
+
+        yield self.control_transfer_out(
+            self.address,
+            request,
+            None,
+        )
 
 class UsbTestValenty(UsbTest):
     def __init__(self, dut, csr_file):
