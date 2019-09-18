@@ -1,8 +1,9 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, NullTrigger, Timer
+from cocotb.triggers import RisingEdge, NullTrigger, Timer, ClockCycles
 from cocotb.result import TestFailure, TestSuccess, ReturnValue
 
+from .usb.descriptors import *
 from .usb.pid import *
 from .usb.endpoint import *
 from .usb.packet import *
@@ -18,6 +19,8 @@ class UsbTest:
         self.dut = dut
         cocotb.fork(Clock(dut.clk48, 20800, 'ps').start())
 
+        self.dut.usb_d_p = 0
+        self.dut.usb_d_n = 0
         # Set the signal "test_name" to match this test
         import inspect
         tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
@@ -26,30 +29,30 @@ class UsbTest:
 
     @cocotb.coroutine
     def reset(self):
-
         self.dut.reset = 1
-        yield RisingEdge(self.dut.clk12)
-        self.dut.reset = 0
-        yield RisingEdge(self.dut.clk12)
-
-        self.dut.usb_d_p = 1
+        self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
+        self.address = 0
 
-        yield self.disconnect()
+        yield ClockCycles(self.dut.clk12,10,rising=True)
+        self.dut.reset = 0
+        yield ClockCycles(self.dut.clk12,10,rising=True)
 
     @cocotb.coroutine
     def connect(self):
-        #TODO: Not functional yet
-        # Device side connect should be activating VBUS
-        if False:
-            yield
+        # FS connect - DP pulled high
+        self.dut.usb_d_p = 1
+        self.dut.usb_d_n = 0
+        yield ClockCycles(self.dut.clk12, 10)
 
     @cocotb.coroutine
     def disconnect(self):
-        #TODO: Not functional yet
-        # Device side connect should be deactivating VBUS
-        if False:
-            yield
+        # Detached - pulldowns on host side
+        self.dut.usb_d_p = 0
+        self.dut.usb_d_n = 0
+        yield ClockCycles(self.dut.clk12, 10)
+        # Device address should have reset
+        self.address = 0
 
     def assertEqual(self, a, b, msg):
         if a != b:
@@ -320,6 +323,49 @@ class UsbTest:
         yield self.transaction_status_out(addr, epaddr_out)
         yield RisingEdge(self.dut.clk12)
 
+    @cocotb.coroutine
+    def set_device_address(self, address):
+        yield self.control_transfer_out(
+            self.address,
+            setAddressRequest(address),
+            None,
+        )
+        self.address = address
+
+    @cocotb.coroutine
+    def get_device_descriptor(self, response):
+        request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE,
+            descriptor_index = 0,
+            lang_id = Descriptor.LangId.UNSPECIFIED,
+            length = 10)
+        yield self.control_transfer_in(self.address, request, response)
+
+    @cocotb.coroutine
+    def get_configuration_descriptor(self, length, response):
+        request = getDescriptorRequest(descriptor_type = Descriptor.Types.CONFIGURATION,
+                descriptor_index = 0,
+                lang_id = Descriptor.LangId.UNSPECIFIED,
+                length = length)
+
+        yield self.control_transfer_in(
+            self.address,
+            request,
+            response
+        )
+
+    @cocotb.coroutine
+    def get_string_descriptor(self, lang_id, idx, response):
+        request = getDescriptorRequest(descriptor_type = Descriptor.Types.STRING,
+                descriptor_index = idx,
+                lang_id = lang_id,
+                length = 255)
+
+        yield self.control_transfer_in(
+            self.address,
+            request,
+            response
+        )
+
 
 class UsbTestValenty(UsbTest):
     def __init__(self, dut, csr_file):
@@ -330,16 +376,7 @@ class UsbTestValenty(UsbTest):
 
     @cocotb.coroutine
     def reset(self):
-
-        self.dut.reset = 1
-        yield RisingEdge(self.dut.clk12)
-        self.dut.reset = 0
-        yield RisingEdge(self.dut.clk12)
-
-        self.dut.usb_d_p = 1
-        self.dut.usb_d_n = 0
-
-        yield self.disconnect()
+        yield super().reset()
 
         # Enable endpoint 0
         yield self.write(self.csrs['usb_enable_out0'], 0xff)
@@ -375,7 +412,9 @@ class UsbTestValenty(UsbTest):
 
     @cocotb.coroutine
     def disconnect(self):
+        super().disconnect()
         USB_PULLUP_OUT = self.csrs['usb_pullup_out']
+        self.address = 0
         yield self.write(USB_PULLUP_OUT, 0)
 
     @cocotb.coroutine
@@ -652,4 +691,8 @@ class UsbTestValenty(UsbTest):
             raise TestFailure("out_ev should be 1 at the end of the test, was: {:02x}".format(out_ev))
         yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
 
+    @cocotb.coroutine
+    def set_device_address(self, address):
+        yield super().set_device_address(address)
+        yield self.write(self.csrs['usb_address'], address)
 
