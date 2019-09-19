@@ -1,6 +1,6 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import GPITrigger
+from cocotb.triggers import Timer, GPITrigger, _wait_callback
 from cocotb.utils import get_sim_steps
 
 import os
@@ -8,9 +8,9 @@ from random import randint
 import itertools
 
 if "COCOTB_SIM" in os.environ:
-        import simulator
+    import simulator
 else:
-        simulator = None
+    simulator = None
 
 class UnstableTrigger(GPITrigger):
     """A trigger with uncertainty within defined range"""
@@ -52,6 +52,7 @@ class UnstableClock(Clock):
         super().__init__(signal, period, units)
         self.jitter_neg = jitter_neg
         self.jitter_pos = jitter_pos
+        self.units = units
 
     @cocotb.coroutine
     def start(self, cycles=None, start_high=True):
@@ -66,24 +67,37 @@ class UnstableClock(Clock):
                 for the first half of the period.
                 Default is ``True``.
         """
-        t = UnstableTrigger(self.half_period, self.jitter_neg, self.jitter_pos)
+        # We need two objects to allow their periods to overlap
+        u1 = UnstableTrigger(self.half_period, self.jitter_neg, self.jitter_pos, self.units)
+        u2 = UnstableTrigger(self.half_period, self.jitter_neg, self.jitter_pos, self.units)
+
+        t = Timer(self.half_period)
+
         if cycles is None:
             it = itertools.count()
         else:
             it = range(cycles)
 
+        def strobeH(ret):
+            self.signal <= 1
+
+        def strobeL(ret):
+            self.signal <= 0
+
         # branch outside for loop for performance (decision has to be taken only once)
         if start_high:
+            self.signal <= 1
             for _ in it:
-                self.signal <= 1
+                cocotb.fork(_wait_callback(u1, strobeL))
                 yield t
-                self.signal <= 0
+                cocotb.fork(_wait_callback(u2, strobeH))
                 yield t
         else:
+            self.signal <= 0
             for _ in it:
-                self.signal <= 0
+                cocotb.fork(_wait_callback(u1, strobeH))
                 yield t
-                self.signal <= 1
+                cocotb.fork(_wait_callback(u2, strobeL))
                 yield t
 
 
