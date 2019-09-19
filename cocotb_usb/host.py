@@ -33,7 +33,7 @@ class UsbTest:
     @cocotb.coroutine
     def reset(self):
         self.dut.reset = 1
-        self.dut.usb_d_p = 0
+        self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
         self.address = 0
 
