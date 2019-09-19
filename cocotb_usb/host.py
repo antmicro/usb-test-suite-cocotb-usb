@@ -17,7 +17,8 @@ from wishbone import WishboneMaster, WBOp
 class UsbTest:
     def __init__(self, dut):
         self.dut = dut
-        cocotb.fork(Clock(dut.clk48_host, 20800, 'ps').start())
+        self.clock_period = 20830
+        cocotb.fork(Clock(dut.clk48_host, self.clock_period, 'ps').start())
 
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
@@ -159,6 +160,8 @@ class UsbTest:
             else:
                 raise TestFailure("Unrecognized dut values: {}".format(values))
 
+        # We want to sample in the middle of a signal to allow for jitter
+        t_middle = Timer(self.clock_period//4, 'ps')
         # Wait for transmission to start
         tx = 0
         bit_times = 0
@@ -167,6 +170,7 @@ class UsbTest:
             if tx == 1:
                 break
             yield RisingEdge(self.dut.clk48_host)
+            yield t_middle
             bit_times = bit_times + 1
         if tx != 1:
             raise TestFailure("No packet started, " + msg)
@@ -184,10 +188,12 @@ class UsbTest:
         # Read in the transmission data
         result = ""
         for i in range(0, 4096):
-            result += current()
-            yield RisingEdge(self.dut.clk48_host)
             if self.dut.usb_tx_en != 1:
                 break
+            else:
+                result += current()
+            yield RisingEdge(self.dut.clk48_host)
+            yield t_middle
         if tx == 1:
             raise TestFailure("Packet didn't finish, " + msg)
         self.dut.usb_d_p = 1
