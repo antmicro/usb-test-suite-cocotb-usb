@@ -123,14 +123,14 @@ class InterfaceDescriptor(Descriptor):
 
     def get(self):
         desc = [self.bLength,
+                self.bDescriptorType,
                 self.bInterfaceNumber,
                 self.bAlternateSetting,
                 self.bNumEndpoints,
                 self.bInterfaceClass,
                 self.bInterfaceSubclass,
                 self.bInterfaceProtocol,
-                self.iInterface,
-                self.bDescriptorType]
+                self.iInterface]
         desc += [b for e in self.endpoints for b in e.get()]
         return desc
 
@@ -189,8 +189,8 @@ class StringDescriptorZero(Descriptor):
     def get(self):
         descriptor = []
         for i in self.wLangId:
-            descriptor.append(i >> 8)
             descriptor.append(i & 0x00FF)
+            descriptor.append(i >> 8)
         descriptor.insert(0, self.bDescriptorType)
         if self.bLength == None:
             bLength = 1 + len(descriptor)
@@ -211,8 +211,8 @@ class StringDescriptor(Descriptor):
     def get(self):
         descriptor = []
         for c in self.bString:
-            descriptor.append(ord(c) >> 8)
             descriptor.append(ord(c) & 0x00FF)
+            descriptor.append(ord(c) >> 8)
         descriptor.insert(0, self.bDescriptorType)
         if self.bLength == None:
             bLength = 1 + len(descriptor)
@@ -256,12 +256,12 @@ class USBDeviceRequest():
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
         return [bmRequestType,
                 bRequest,
-                wValue >> 8,
                 wValue & 0x00FF,
-                wIndex >> 8,
+                wValue >> 8,
                 wIndex & 0x00FF,
-                wLength >> 8,
+                wIndex >> 8,
                 wLength & 0x00FF,
+                wLength >> 8,
                 ]
 
 def setAddressRequest(address):
