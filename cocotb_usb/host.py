@@ -15,7 +15,8 @@ from .utils import *
 from wishbone import WishboneMaster, WBOp
 
 class UsbTest:
-    def __init__(self, dut, decouple_clocks=False):
+    def __init__(self, dut, **kwargs):
+        decouple_clocks = kwargs.get('decouple_clocks', False)
         self.dut = dut
         self.clock_period = 20830
         cocotb.fork(Clock(dut.clk48_host, self.clock_period, 'ps').start())
@@ -386,8 +387,8 @@ class UsbTest:
         )
 
 class UsbTestValenty(UsbTest):
-    def __init__(self, dut, csr_file, decouple_clocks=False):
-        super().__init__(dut, decouple_clocks)
+    def __init__(self, dut, csr_file, **kwargs):
+        super().__init__(dut, **kwargs)
         self.csrs = dict()
         self.csrs = parse_csr(csr_file)
         self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
