@@ -3,6 +3,7 @@ import json
 from .usb.descriptors import *
 
 def getVal(val, minimum, maximum, isHexString = False):
+    '''Helper function to get values in given range'''
     if isHexString:
         val = int(val, base = 16)
     if not minimum <= val <= maximum:
@@ -10,6 +11,7 @@ def getVal(val, minimum, maximum, isHexString = False):
     return val
 
 class UsbJsonParser():
+    '''Parser to retrieve USB descriptors from a JSON file'''
     def __init__(self, config_file):
         with open(config_file, "r") as f:
             self.data = json.load(f)
@@ -126,6 +128,7 @@ class UsbJsonParser():
 
 
 class UsbDevice:
+    ''' Object for storing USB descriptors information in a structured manner'''
     def __init__(self, config_file):
         parser = UsbJsonParser(config_file)
         self.deviceDescriptor = parser.getDeviceDescriptor()

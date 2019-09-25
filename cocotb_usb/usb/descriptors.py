@@ -1,6 +1,7 @@
 from enum import Enum
 
 class Descriptor():
+    """Base class for storing common descriptor elements"""
     class LangId():
         UNSPECIFIED = 0x0000
         ENG = 0x0409
@@ -16,6 +17,7 @@ class Descriptor():
         INTERFACE_POWER = 8
 
 class DeviceDescriptor(Descriptor):
+    """Class representing USB device descriptor"""
     def __init__(self, bLength, bcdUSB, bDeviceClass,
             bDeviceSubClass, bDeviceProtocol, bMaxPacketSize0, idVendor, idProduct, bcdDevice,
             iManufacturer, iProduct, iSerialNumber, bNumConfigurations, bDescriptorType=Descriptor.Types.DEVICE):
@@ -35,6 +37,7 @@ class DeviceDescriptor(Descriptor):
         self.bNumConfigurations = bNumConfigurations
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         return [self.bLength,
                 self.bDescriptorType,
                 self.bcdUSB >> 8,
@@ -55,6 +58,7 @@ class DeviceDescriptor(Descriptor):
                 self.bNumConfigurations]
 
 class EndpointDescriptor(Descriptor):
+    """Class representing standard USB endpoint descriptor"""
     class Direction:
         OUT = 0
         IN = 1
@@ -91,6 +95,7 @@ class EndpointDescriptor(Descriptor):
         self.bDescriptorType  = bDescriptorType
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         return [self.bLength,
                 self.bDescriptorType,
                 self.bEndpointAddress,
@@ -100,6 +105,7 @@ class EndpointDescriptor(Descriptor):
                 self.bInterval]
 
 class InterfaceDescriptor(Descriptor):
+    """Class representing standard USB interface descriptor"""
     def __init__(self, bLength,
             bInterfaceNumber,
             bAlternateSetting,
@@ -122,6 +128,7 @@ class InterfaceDescriptor(Descriptor):
         self.endpoints          = endpoints
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         desc = [self.bLength,
                 self.bDescriptorType,
                 self.bInterfaceNumber,
@@ -136,6 +143,10 @@ class InterfaceDescriptor(Descriptor):
 
 
 class ConfigDescriptor(Descriptor):
+    """Class representing standard USB configuration descriptor
+    Can also represent OTHER_SPEED_CONFIGURATION descriptor, as they have
+    identical contents.
+    """
     class Attributes():
         NONE = 0
         SELF_POWERED = 1<<6
@@ -162,6 +173,7 @@ class ConfigDescriptor(Descriptor):
          self.interfaces          =  interfaces
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         desc = [self.bLength,
                 self.bDescriptorType,
                 self.wTotalLength >> 8,
@@ -176,8 +188,10 @@ class ConfigDescriptor(Descriptor):
         return desc
 
 class StringDescriptorZero(Descriptor):
-    # This one is different than other string descriptors
-    # It contains an array of supported LanguageIds
+    """Class representing USB string descriptor with index 0.
+     This one is different than other string descriptors in that it contains
+     an array of supported LanguageIds instead of an actual string.
+    """
     def __init__(self, wLangIdList,
             bLength = None,
             bDescriptorType = Descriptor.Types.STRING
@@ -187,6 +201,7 @@ class StringDescriptorZero(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         descriptor = []
         for i in self.wLangId:
             descriptor.append(i & 0x00FF)
@@ -200,6 +215,7 @@ class StringDescriptorZero(Descriptor):
         return descriptor
 
 class StringDescriptor(Descriptor):
+    """Class representing standard USB string descriptor"""
     def __init__(self,bString,
             bLength = None,
             bDescriptorType = Descriptor.Types.STRING
@@ -209,6 +225,7 @@ class StringDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def get(self):
+        """Return descriptor contents as list of bytes"""
         descriptor = []
         for c in self.bString:
             descriptor.append(ord(c) & 0x00FF)
@@ -222,6 +239,7 @@ class StringDescriptor(Descriptor):
         return descriptor
 
 class USBDeviceRequest():
+    """Class grouping common USB request definitions"""
     class Type():
         # Format constants from USB Spec 9.3
         # Direction
@@ -254,6 +272,7 @@ class USBDeviceRequest():
         SYNCH_FRAME = 12
 
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
+        """Create a USB request with provided values"""
         return [bmRequestType,
                 bRequest,
                 wValue & 0x00FF,
@@ -265,6 +284,11 @@ class USBDeviceRequest():
                 ]
 
 def setAddressRequest(address):
+    """Create a standard SET_ADDRESS USB request
+
+    Args:
+        address (int): Address to be set. Should be below 128.
+    """
     assert address <= 127
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE | USBDeviceRequest.Type.STANDARD | USBDeviceRequest.Type.DEVICE,
             bRequest = USBDeviceRequest.Code.SET_ADDRESS,
@@ -273,6 +297,14 @@ def setAddressRequest(address):
             wLength = 0)
 
 def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
+    """Create a standard GET_DESCRIPTOR USB request
+
+    Args:
+        descriptor_type: Type of the descriptor as per USB specification.
+        descriptor_index: Index of descriptor to be read.
+        lang_id (int): LangId of descriptor to be read or 0 if unspecified.
+        length (int): Number of bytes requested.
+    """
     return USBDeviceRequest.build(USBDeviceRequest.Type.DEVICE_TO_HOST | USBDeviceRequest.Type.STANDARD | USBDeviceRequest.Type.DEVICE,
             bRequest = USBDeviceRequest.Code.GET_DESCRIPTOR,
             wValue = descriptor_type << 8 | descriptor_index,
@@ -280,6 +312,11 @@ def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
             wLength = length)
 
 def setConfigurationRequest(configuration):
+    """Create a standard SET_CONFIGURATION USB request
+
+    Args:
+        configuration (int): Configuration value to be set. Should be below 256.
+    """
     # Upper byte of wValue byte is reserved here
     assert configuration <= 255
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE | USBDeviceRequest.Type.STANDARD | USBDeviceRequest.Type.DEVICE,
