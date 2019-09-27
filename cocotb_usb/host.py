@@ -367,7 +367,7 @@ class UsbTest:
         request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE,
             descriptor_index = 0,
             lang_id = Descriptor.LangId.UNSPECIFIED,
-            length = 10)
+            length = 18)
         yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine

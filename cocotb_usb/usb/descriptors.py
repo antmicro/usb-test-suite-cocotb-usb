@@ -40,18 +40,18 @@ class DeviceDescriptor(Descriptor):
         """Return descriptor contents as list of bytes"""
         return [self.bLength,
                 self.bDescriptorType,
-                self.bcdUSB >> 8,
                 self.bcdUSB & 0x00FF,
+                self.bcdUSB >> 8,
                 self.bDeviceClass,
                 self.bDeviceSubClass,
                 self.bDeviceProtocol,
                 self.bMaxPacketSize0,
-                self.idVendor >> 8,
                 self.idVendor & 0x00FF,
-                self.idProduct >> 8,
+                self.idVendor >> 8,
                 self.idProduct & 0x00FF,
-                self.bcdDevice >> 8,
+                self.idProduct >> 8,
                 self.bcdDevice & 0x00FF,
+                self.bcdDevice >> 8,
                 self.iManufacturer,
                 self.iProduct,
                 self.iSerialNumber,
@@ -100,8 +100,8 @@ class EndpointDescriptor(Descriptor):
                 self.bDescriptorType,
                 self.bEndpointAddress,
                 self.bmAttributes,
-                self.wMaxPacketSize >> 8,
                 self.wMaxPacketSize & 0x00FF,
+                self.wMaxPacketSize >> 8,
                 self.bInterval]
 
 class InterfaceDescriptor(Descriptor):
@@ -149,6 +149,7 @@ class ConfigDescriptor(Descriptor):
     """
     class Attributes():
         NONE = 0
+        BUS_POWERED = 1<<7 # USB 1.0 only, otherwise reserved
         SELF_POWERED = 1<<6
         REMOTE_WAKEUP = 1<<5
         # Reserved 1<<4..0
@@ -176,13 +177,12 @@ class ConfigDescriptor(Descriptor):
         """Return descriptor contents as list of bytes"""
         desc = [self.bLength,
                 self.bDescriptorType,
-                self.wTotalLength >> 8,
                 self.wTotalLength & 0x00FF,
+                self.wTotalLength >> 8,
                 self.bNumInterfaces,
                 self.bConfigurationValue,
                 self.iConfiguration,
-                # 1<<7 must be set to 1 for historical reasons
-                1<<7 | self.bmAttributes,
+                self.bmAttributes,
                 self.bMaxPower]
         desc += [b for i in self.interfaces for b in i.get()]
         return desc
