@@ -52,6 +52,17 @@ class UsbTest:
         yield ClockCycles(self.dut.clk48_host,10,rising=True)
 
     @cocotb.coroutine
+    def port_reset(self, time=50e3):
+        """Send USB port reset - SE0 condition for at least 50 ms (on root port)
+
+        Args:
+            time (int): Duration of reset in us
+        """
+        self.dut.usb_d_p = 0
+        self.dut.usb_d_n = 0
+        yield Timer(time, units="us")
+
+    @cocotb.coroutine
     def connect(self):
         """Simulate FS connect to DUT"""
         # FS connect - DP pulled high
@@ -358,7 +369,7 @@ class UsbTest:
         self.address = address
 
     @cocotb.coroutine
-    def get_device_descriptor(self, response):
+    def get_device_descriptor(self, response, length=18):
         """Read the device descriptor from DUT.
 
         Args:
@@ -367,7 +378,7 @@ class UsbTest:
         request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE,
             descriptor_index = 0,
             lang_id = Descriptor.LangId.UNSPECIFIED,
-            length = 18)
+            length = length)
         yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
@@ -402,6 +413,25 @@ class UsbTest:
                 descriptor_index = idx,
                 lang_id = lang_id,
                 length = 255)
+
+        yield self.control_transfer_in(
+            self.address,
+            request,
+            response
+        )
+
+    @cocotb.coroutine
+    def get_device_qualifier(self, length, response):
+        """Read a device qualifier descriptor from DUT.
+
+        Args:
+            length (int): Number of bytes to be read.
+            response: Expected descriptor contents as list of bytes.
+        """
+        request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE_QUALIFIER,
+                descriptor_index = 0,
+                lang_id = Descriptor.LangId.UNSPECIFIED,
+                length = length)
 
         yield self.control_transfer_in(
             self.address,

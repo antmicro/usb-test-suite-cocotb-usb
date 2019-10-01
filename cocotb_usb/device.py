@@ -126,6 +126,18 @@ class UsbJsonParser():
 
         return descriptors
 
+    def getDeviceQualifierDescriptor(self):
+        return DeviceQualifierDescriptor(
+            bLength            = getVal(self.data["Device Qualifier"]["bLength"], 0,0xFF),
+            bDescriptorType    = getVal(self.data["Device Qualifier"]["bDescriptorType"], 0,0xFF),
+            bcdUSB             = getVal(self.data["Device Qualifier"]["bcdUSB"], 0,0xFFFF, True),
+            bDeviceClass       = getVal(self.data["Device Qualifier"]["bDeviceClass"], 0,0xFF),
+            bDeviceSubClass    = getVal(self.data["Device Qualifier"]["bDeviceSubClass"], 0,0xFF),
+            bDeviceProtocol    = getVal(self.data["Device Qualifier"]["bDeviceProtocol"], 0,0xFF),
+            bMaxPacketSize0    = getVal(self.data["Device Qualifier"]["bMaxPacketSize0"], 0,0xFF),
+            bNumConfigurations = getVal(self.data["Device Qualifier"]["bNumConfigurations"], 0,0xFF),
+            )
+
 
 class UsbDevice:
     ''' Object for storing USB descriptors information in a structured manner'''
@@ -140,3 +152,11 @@ class UsbDevice:
         self.stringDescriptorZero = parser.getStringDescriptorZero()
         self.stringDescriptor = parser.getStringDescriptors()
 
+        try:
+            self.deviceQualifierDescriptor = parser.getDeviceQualifierDescriptor()
+        except KeyError as e:
+            if e.args[0] == "Device Qualifier":
+                # Pre-USB2.0 devices do not need to implement device qualifier
+                self.deviceQualifierDescriptor = None
+            else:
+                raise e

@@ -238,6 +238,39 @@ class StringDescriptor(Descriptor):
         descriptor.insert(0, bLength)
         return descriptor
 
+class DeviceQualifierDescriptor(Descriptor):
+    """Class representing standard USB device qualifier descriptor"""
+    def __init__(self, bcdUSB,
+            bDeviceClass,
+            bDeviceSubClass,
+            bDeviceProtocol,
+            bMaxPacketSize0,
+            bNumConfigurations,
+            bLength=10,
+            bDescriptorType=Descriptor.Types.DEVICE_QUALIFIER
+            ):
+        self.bcdUSB             = bcdUSB
+        self.bDeviceClass       = bDeviceClass
+        self.bDeviceSubClass    = bDeviceSubClass
+        self.bDeviceProtocol    = bDeviceProtocol
+        self.bMaxPacketSize0    = bMaxPacketSize0
+        self.bNumConfigurations = bNumConfigurations
+        self.bLength            = bLength
+        self.bDescriptorType    = bDescriptorType
+
+    def get(self):
+        """Return descriptor contents as list of bytes"""
+        return [self.bLength,
+                self.bDescriptorType,
+                self.bcdUSB & 0x00FF,
+                self.bcdUSB >> 8,
+                self.bDeviceClass,
+                self.bDeviceSubClass,
+                self.bDeviceProtocol,
+                self.bMaxPacketSize0,
+                self.bNumConfigurations,
+                0x00] # Reserved for future use
+
 class USBDeviceRequest():
     """Class grouping common USB request definitions"""
     class Type():
