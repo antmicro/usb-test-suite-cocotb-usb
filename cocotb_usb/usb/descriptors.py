@@ -271,6 +271,20 @@ class DeviceQualifierDescriptor(Descriptor):
                 self.bNumConfigurations,
                 0x00] # Reserved for future use
 
+class FeatureSelector:
+    ENDPOINT_HALT = 0
+    DEVICE_REMOTE_WAKEUP = 1
+    TEST_MODE = 2
+
+    class TestMode:
+        # Reserved 0x00
+        TEST_J = 0x01
+        TEST_K = 0x02
+        TEST_SE0_NAK = 0x03
+        TEST_PACKET = 0x04
+        TEST_FORCE_ENABLE = 0x05
+        # Reserved 0x06-0xFF
+
 class USBDeviceRequest():
     """Class grouping common USB request definitions"""
     class Type():
@@ -356,5 +370,12 @@ def setConfigurationRequest(configuration):
             bRequest = USBDeviceRequest.Code.SET_CONFIGURATION,
             wValue = configuration,
             wIndex = 0,
+            wLength = 0)
+
+def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
+    return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE | USBDeviceRequest.Type.STANDARD | recipient,
+            bRequest = USBDeviceRequest.Code.SET_FEATURE,
+            wValue = feature_selector << 8 | feature_selector,
+            wIndex = test_selector << 8 | target,
             wLength = 0)
 
