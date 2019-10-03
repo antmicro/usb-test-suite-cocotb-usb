@@ -1,5 +1,6 @@
 import csv
 
+
 def grouper_tofit(n, iterable):
     from itertools import zip_longest
     """Group iterable into multiples of n, except don't leave
@@ -9,7 +10,7 @@ def grouper_tofit(n, iterable):
     # value, and doesn't mention anything else in its documentation that would
     # not require this behavior.
     # Re-do the array to shrink it down if any None values are discovered.
-    broken = zip_longest(*[iter(iterable)]*n, fillvalue=None)
+    broken = zip_longest(*[iter(iterable)] * n, fillvalue=None)
     fixed = []
     for e in broken:
         f = []
@@ -18,6 +19,7 @@ def grouper_tofit(n, iterable):
                 f.append(el)
         fixed.append(f)
     return fixed
+
 
 def parse_csr(csr_file="csr.csv"):
     csrs = dict()
@@ -28,5 +30,3 @@ def parse_csr(csr_file="csr.csv"):
             if row[0] == 'csr_register':
                 csrs[row[1]] = int(row[2], base=0)
     return csrs
-
-

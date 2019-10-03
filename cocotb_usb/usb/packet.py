@@ -36,7 +36,8 @@ def encode_pid(value):
     return encode_data([value.byte()])
 
 
-# width=5 poly=0x05 init=0x1f refin=true refout=true xorout=0x1f check=0x19 residue=0x06 name="CRC-5/USB"
+# width=5 poly=0x05 init=0x1f refin=true refout=true xorout=0x1f check=0x19
+# residue=0x06 name="CRC-5/USB"
 def crc5(nibbles):
     """
     >>> hex(crc5([0, 0]))
@@ -80,7 +81,8 @@ def crc5_sof(v):
 
 
 def crc16(input_data):
-    # width=16 poly=0x8005 init=0xffff refin=true refout=true xorout=0xffff check=0xb4c8 residue=0xb001 name="CRC-16/USB"
+    # width=16 poly=0x8005 init=0xffff refin=true refout=true xorout=0xffff
+    # check=0xb4c8 residue=0xb001 name="CRC-16/USB"
     # CRC appended low byte first.
     reg = crc.CrcRegister(crc.CRC16_USB)
     for d in input_data:
@@ -215,9 +217,9 @@ def token_packet(pid, addr, endp):
     assert endp < 2**4, endp
     assert pid in (PID.OUT, PID.IN, PID.SETUP), pid
     token = encode_pid(pid)
-    token += "{0:07b}".format(addr)[::-1]                   # 7 bits address
-    token += "{0:04b}".format(endp)[::-1]                   # 4 bits endpoint
-    token += "{0:05b}".format(crc5_token(addr, endp))[::-1] # 5 bits CRC5
+    token += "{0:07b}".format(addr)[::-1]  # 7 bits address
+    token += "{0:04b}".format(endp)[::-1]  # 4 bits endpoint
+    token += "{0:05b}".format(crc5_token(addr, endp))[::-1]  # 5 bits CRC5
     assert len(token) == 24, token
     return token
 
@@ -228,7 +230,8 @@ def data_packet(pid, payload):
     sync, pid, data, crc16, eop
     FIXME: data should be multiples of 8?
 
-    >>> data_packet(PID.DATA0, [0x80, 0x06, 0x03, 0x03, 0x09, 0x04, 0x00, 0x02])
+    >>> data_packet(PID.DATA0, [0x80, 0x06, 0x03, 0x03, 0x09, 0x04, 0x00,\
+0x02])
     '1100001100000001011000001100000011000000100100000010000000000000010000000110101011011100'
 
     >>> data_packet(PID.DATA1, [])
@@ -400,19 +403,19 @@ def undiff(usbp, usbn):
     ____ SE0
     JJJJ END
     """
-    assert len(usbp) == len(usbn), "Sequence different lengths!\n%s\n%s\n" % (
-        usbp, usbn)
+    assert len(usbp) == len(
+        usbn), "Sequence different lengths!\n%s\n%s\n" % (usbp, usbn)
     value = []
     for i in range(0, len(usbp)):
         p = usbp[i]
         n = usbn[i]
         value.append({
-            #pn
+            # pn
             '00': '_',
             '11': 'E',
             '10': 'J',
             '01': 'K',
-        }[p+n])
+        }[p + n])
     return "".join(value)
 
 

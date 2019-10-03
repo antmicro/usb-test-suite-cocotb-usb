@@ -32,31 +32,31 @@ class PID(IntEnum):
     """
 
     # Token pids
-    SETUP   = 0b1101 # D
-    OUT     = 0b0001 # 1
-    IN      = 0b1001 # 9
-    SOF     = 0b0101 # 5
+    SETUP = 0b1101  # D
+    OUT = 0b0001  # 1
+    IN = 0b1001  # 9
+    SOF = 0b0101  # 5
 
     # Data pid
-    DATA0   = 0b0011 # 3
-    DATA1   = 0b1011 # B
+    DATA0 = 0b0011  # 3
+    DATA1 = 0b1011  # B
     # USB HS only
-    DATA2   = 0b0111 # B
-    MDATA   = 0b1111 # F
+    DATA2 = 0b0111  # B
+    MDATA = 0b1111  # F
 
     # Handshake pids
-    ACK     = 0b0010 # 2
-    NAK     = 0b1010 # A
-    STALL   = 0b1110 # E
+    ACK = 0b0010  # 2
+    NAK = 0b1010  # A
+    STALL = 0b1110  # E
     # USB HS only
-    NYET    = 0b0110 # 6
+    NYET = 0b0110  # 6
 
     # USB HS only
-    PRE      = 0b1100 # C
-    ERR      = 0b1100 # C
-    SPLIT    = 0b1000 # 8
-    PING     = 0b0100 # 4
-    RESERVED = 0b0000 # 0
+    PRE = 0b1100  # C
+    ERR = 0b1100  # C
+    SPLIT = 0b1000  # 8
+    PING = 0b0100  # 4
+    RESERVED = 0b0000  # 0
 
     def byte(self):
         v = self.value
@@ -65,52 +65,66 @@ class PID(IntEnum):
     def encode(self, cycles=4):
         # Prevent cyclic imports by importing here...
         from .packet import nrzi, sync, encode_pid
-        return nrzi(sync()+encode_pid(self.value),cycles)[cycles*len(sync()):]
+        return nrzi(sync() + encode_pid(self.value),
+                    cycles)[cycles * len(sync()):]
 
 
 class PIDTypes(IntEnum):
     """
     >>> # Token PIDs
-    >>> PIDTypes.token(PID.SETUP), PIDTypes.data(PID.SETUP), PIDTypes.handshake(PID.SETUP)
+    >>> PIDTypes.token(PID.SETUP), PIDTypes.data(PID.SETUP),\
+PIDTypes.handshake(PID.SETUP)
     (True, False, False)
-    >>> PIDTypes.token(PID.OUT), PIDTypes.data(PID.OUT), PIDTypes.handshake(PID.OUT)
+    >>> PIDTypes.token(PID.OUT), PIDTypes.data(PID.OUT),\
+PIDTypes.handshake(PID.OUT)
     (True, False, False)
-    >>> PIDTypes.token(PID.IN), PIDTypes.data(PID.IN), PIDTypes.handshake(PID.IN)
+    >>> PIDTypes.token(PID.IN), PIDTypes.data(PID.IN),\
+PIDTypes.handshake(PID.IN)
     (True, False, False)
-    >>> PIDTypes.token(PID.SOF), PIDTypes.data(PID.SOF), PIDTypes.handshake(PID.SOF)
+    >>> PIDTypes.token(PID.SOF), PIDTypes.data(PID.SOF),\
+PIDTypes.handshake(PID.SOF)
     (True, False, False)
 
     >>> # Data PIDs
-    >>> PIDTypes.token(PID.DATA0), PIDTypes.data(PID.DATA0), PIDTypes.handshake(PID.DATA0)
+    >>> PIDTypes.token(PID.DATA0), PIDTypes.data(PID.DATA0),\
+PIDTypes.handshake(PID.DATA0)
     (False, True, False)
-    >>> PIDTypes.token(PID.DATA1), PIDTypes.data(PID.DATA1), PIDTypes.handshake(PID.DATA1)
+    >>> PIDTypes.token(PID.DATA1), PIDTypes.data(PID.DATA1),\
+PIDTypes.handshake(PID.DATA1)
     (False, True, False)
     >>> # USB2.0 Data PIDs
-    >>> PIDTypes.token(PID.DATA2), PIDTypes.data(PID.DATA2), PIDTypes.handshake(PID.DATA2)
+    >>> PIDTypes.token(PID.DATA2), PIDTypes.data(PID.DATA2),\
+PIDTypes.handshake(PID.DATA2)
     (False, True, False)
-    >>> PIDTypes.token(PID.MDATA), PIDTypes.data(PID.MDATA), PIDTypes.handshake(PID.MDATA)
+    >>> PIDTypes.token(PID.MDATA), PIDTypes.data(PID.MDATA),\
+PIDTypes.handshake(PID.MDATA)
     (False, True, False)
 
     >>> # Handshake PIDs
-    >>> PIDTypes.token(PID.ACK), PIDTypes.data(PID.ACK), PIDTypes.handshake(PID.ACK)
+    >>> PIDTypes.token(PID.ACK), PIDTypes.data(PID.ACK),\
+PIDTypes.handshake(PID.ACK)
     (False, False, True)
-    >>> PIDTypes.token(PID.NAK), PIDTypes.data(PID.NAK), PIDTypes.handshake(PID.NAK)
+    >>> PIDTypes.token(PID.NAK), PIDTypes.data(PID.NAK),\
+PIDTypes.handshake(PID.NAK)
     (False, False, True)
-    >>> PIDTypes.token(PID.STALL), PIDTypes.data(PID.STALL), PIDTypes.handshake(PID.STALL)
+    >>> PIDTypes.token(PID.STALL), PIDTypes.data(PID.STALL),\
+PIDTypes.handshake(PID.STALL)
     (False, False, True)
     >>> # USB2.0 Handshake PIDs
-    >>> PIDTypes.token(PID.NYET), PIDTypes.data(PID.NYET), PIDTypes.handshake(PID.NYET)
+    >>> PIDTypes.token(PID.NYET), PIDTypes.data(PID.NYET),\
+PIDTypes.handshake(PID.NYET)
     (False, False, True)
 
     >>> # Special PIDs
-    >>> PIDTypes.token(PID.PRE), PIDTypes.data(PID.PRE), PIDTypes.handshake(PID.PRE)
+    >>> PIDTypes.token(PID.PRE), PIDTypes.data(PID.PRE),\
+PIDTypes.handshake(PID.PRE)
     (False, False, False)
     """
 
-    TOKEN     = 0b0001
-    DATA      = 0b0011
+    TOKEN = 0b0001
+    DATA = 0b0011
     HANDSHAKE = 0b0010
-    SPECIAL   = 0b0000
+    SPECIAL = 0b0000
 
     TYPE_MASK = 0b0011
 

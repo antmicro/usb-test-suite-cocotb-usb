@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-from .packet import *
-from .pid import *
+from .pid import PID
 
 
 def pp_packet(p, cycles=4):
     """
-    >>> print(pp_packet(wrap_packet(handshake_packet(PID.ACK), cycles=1), cycles=1))
+    >>> print(pp_packet(wrap_packet(handshake_packet(PID.ACK), cycles=1),\
+cycles=1))
     -
     K 1 Sync
     J 2 Sync
@@ -52,7 +52,8 @@ def pp_packet(p, cycles=4):
     ____ SE0
     ____ SE0
     JJJJ END
-    >>> print(pp_packet(wrap_packet(handshake_packet(PID.ACK), cycles=10), cycles=10))
+    >>> print(pp_packet(wrap_packet(handshake_packet(PID.ACK), cycles=10),\
+cycles=10))
     ----------
     KKKKKKKKKK 1 Sync
     JJJJJJJJJJ 2 Sync
@@ -304,7 +305,7 @@ def pp_packet(p, cycles=4):
     """
 
     output = []
-    chunks = [p[i:i+cycles] for i in range(0, len(p), cycles)]
+    chunks = [p[i:i + cycles] for i in range(0, len(p), cycles)]
 
     class BitStuff:
         def __init__(self):
@@ -331,10 +332,9 @@ def pp_packet(p, cycles=4):
 
         def __call__(self, chunk):
             if self.i % 8 == 0:
-                output.append('-'*cycles+'\n')
+                output.append('-' * cycles + '\n')
             self.i += 1
             return False
-
 
     class Sync:
         def __init__(self):
@@ -346,7 +346,6 @@ def pp_packet(p, cycles=4):
             self.i += 1
             output.extend([chunk, ' %i Sync\n' % self.i])
             return True
-
 
     class Pid:
         def __init__(self):
@@ -367,16 +366,16 @@ def pp_packet(p, cycles=4):
                 return True
 
             self.done = True
-            self.type = self.encoded_pids.get("".join(self.pid_chunks), 'ERROR')
+            self.type = self.encoded_pids.get("".join(self.pid_chunks),
+                                              'ERROR')
 
             for i, chunk in enumerate(self.pid_chunks):
                 if i == 0:
                     output.extend([chunk, ' %i PID (%s)\n' % (1, self.type)])
                 else:
-                    output.extend([chunk, ' %i PID\n' % (i+1,)])
+                    output.extend([chunk, ' %i PID\n' % (i + 1, )])
 
             return True
-
 
     class SOF:
         def __init__(self, pid):
@@ -407,7 +406,6 @@ def pp_packet(p, cycles=4):
         def finish(self):
             pass
 
-
     class Data:
         def __init__(self, pid):
             self.done = False
@@ -422,7 +420,7 @@ def pp_packet(p, cycles=4):
             output.append(None)
 
             if len(self.last16) > 16:
-                self.patch(self.last16.pop(0)+'\n')
+                self.patch(self.last16.pop(0) + '\n')
 
             return True
 
@@ -435,15 +433,15 @@ def pp_packet(p, cycles=4):
             if output.count(None) == 0:
                 return False
 
-            assert output.count(None) == len(self.last16), (output.count(None), len(self.last16))
+            assert output.count(None) == len(self.last16), (output.count(None),
+                                                            len(self.last16))
             if len(self.last16) == 16:
                 for i, chunk in enumerate(self.last16):
-                    self.patch(chunk+' %2i CRC16\n' % (i+1,))
+                    self.patch(chunk + ' %2i CRC16\n' % (i + 1, ))
             else:
                 for i, chunk in enumerate(self.last16):
-                    self.patch(chunk+'\n')
+                    self.patch(chunk + '\n')
             assert output.count(None) == 0
-
 
     class Token:
         def __init__(self, pid):
@@ -476,7 +474,6 @@ def pp_packet(p, cycles=4):
                 output.extend([chunk, ' ERROR\n'])
 
             return True
-
 
     class End:
         def __init__(self):

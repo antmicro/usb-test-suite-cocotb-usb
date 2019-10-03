@@ -28,12 +28,13 @@ class EndpointType(IntEnum):
 class EndpointResponse(IntEnum):
     """
     >>> # Clearing top bit of STALL -> NAK
-    >>> assert (EndpointResponse.STALL & EndpointResponse.RESET_MASK) == EndpointResponse.NAK
+    >>> assert (EndpointResponse.STALL & EndpointResponse.RESET_MASK) ==\
+EndpointResponse.NAK
     """
     STALL = 0b11
-    ACK   = 0b00
-    NAK   = 0b01
-    NONE  = 0b10
+    ACK = 0b00
+    NAK = 0b01
+    NONE = 0b10
 
     RESET_MASK = 0b01
 

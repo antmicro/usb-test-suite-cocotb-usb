@@ -1,18 +1,21 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, NullTrigger, Timer, ClockCycles
-from cocotb.result import TestFailure, TestSuccess, ReturnValue
+from cocotb.triggers import RisingEdge, Timer, ClockCycles
+from cocotb.result import TestFailure, ReturnValue
 
-from .usb.descriptors import *
-from .usb.pid import *
-from .usb.endpoint import *
-from .usb.packet import *
+from .usb.descriptors import (Descriptor, getDescriptorRequest,
+                              setAddressRequest, setConfigurationRequest)
+from .usb.pid import PID
+from .usb.endpoint import EndpointType, EndpointResponse
+from .usb.packet import (wrap_packet, token_packet, data_packet, sof_packet,
+                         handshake_packet, crc16)
 from .usb.pprint import pp_packet
 
-from .utils import *
+from .utils import grouper_tofit, parse_csr
 
 # Litex imports
-from wishbone import WishboneMaster, WBOp
+from wishbone import WishboneMaster
+
 
 class UsbTest:
     """
@@ -20,8 +23,9 @@ class UsbTest:
 
     Args:
         dut : Object under test as passed by cocotb.
-        decouple_clocks (bool, optional): Indicates whether host and device share
-            clock signal. If set to False, you must provide clk48_device clock in test.
+        decouple_clocks (bool, optional): Indicates whether host and device
+        share clock signal. If set to False, you must provide clk48_device
+        clock in test.
     """
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
@@ -29,7 +33,8 @@ class UsbTest:
         self.clock_period = 20830
         cocotb.fork(Clock(dut.clk48_host, self.clock_period, 'ps').start())
         if not decouple_clocks:
-            cocotb.fork(Clock(dut.clk48_device, self.clock_period, 'ps').start())
+            cocotb.fork(
+                Clock(dut.clk48_device, self.clock_period, 'ps').start())
 
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
@@ -47,9 +52,9 @@ class UsbTest:
         self.dut.usb_d_n = 0
         self.address = 0
 
-        yield ClockCycles(self.dut.clk48_host,10,rising=True)
+        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
         self.dut.reset = 0
-        yield ClockCycles(self.dut.clk48_host,10,rising=True)
+        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
 
     @cocotb.coroutine
     def port_reset(self, time=50e3):
@@ -89,10 +94,9 @@ class UsbTest:
             raise TestFailure("{} vs {} - {}".format(a, b, msg))
 
     def print_ep(self, epaddr, msg, *args):
-        self.dut._log.info("ep(%i, %s): %s" % (
-            EndpointType.epnum(epaddr),
-            EndpointType.epdir(epaddr).name,
-            msg) % args)
+        self.dut._log.info("ep(%i, %s): %s" %
+                           (EndpointType.epnum(epaddr),
+                            EndpointType.epdir(epaddr).name, msg) % args)
 
     # Host->Device
     @cocotb.coroutine
@@ -102,7 +106,7 @@ class UsbTest:
         # Packet gets multiplied by 4x so we can send using the
         # usb48 clock instead of the usb12 clock.
         packet = 'JJJJJJJJ' + wrap_packet(packet)
-        self.assertEqual('J', packet[-1], "Packet didn't end in J: "+packet)
+        self.assertEqual('J', packet[-1], "Packet didn't end in J: " + packet)
 
         for v in packet:
             if v == '0' or v == '_':
@@ -150,7 +154,8 @@ class UsbTest:
         """Send data out the virtual USB connection, including an OUT token"""
         yield self.host_send_token_packet(PID.OUT, addr, epnum)
         yield self.host_send_data_packet(data01, data)
-        yield self.host_expect_packet(handshake_packet(expected), "Expected {} packet.".format(expected))
+        yield self.host_expect_packet(handshake_packet(expected),
+                                      "Expected {} packet.".format(expected))
 
     @cocotb.coroutine
     def host_setup(self, addr, epnum, data):
@@ -170,7 +175,6 @@ class UsbTest:
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
         """Expect to receive the following USB packet."""
-
         def current():
             values = (self.dut.usb_d_p, self.dut.usb_d_n)
 
@@ -186,7 +190,7 @@ class UsbTest:
                 raise TestFailure("Unrecognized dut values: {}".format(values))
 
         # We want to sample in the middle of a signal to allow for jitter
-        t_middle = Timer(self.clock_period//4, 'ps')
+        t_middle = Timer(self.clock_period // 4, 'ps')
         # Wait for transmission to start
         tx = 0
         bit_times = 0
@@ -200,15 +204,21 @@ class UsbTest:
         if tx != 1:
             raise TestFailure("No packet started, " + msg)
 
-        # # USB specifies that the turn-around time is 7.5 bit times for the device
+        # USB specifies that the turn-around time is 7.5 bit times
+        # for the device
         bit_time_max = 12.5
         bit_time_acceptable = 7.5
-        if (bit_times/4.0) > bit_time_max:
-            raise TestFailure("Response came after {} bit times, which is more than {}".format(bit_times / 4.0, bit_time_max))
-        if (bit_times/4.0) > bit_time_acceptable:
-            self.dut._log.warn("Response came after {} bit times (> {})".format(bit_times / 4.0, bit_time_acceptable))
+        if (bit_times / 4.0) > bit_time_max:
+            raise TestFailure(
+                "Response came after {} bit times, which is more than {}".
+                format(bit_times / 4.0, bit_time_max))
+        if (bit_times / 4.0) > bit_time_acceptable:
+            self.dut._log.warn(
+                "Response came after {} bit times (> {})".format(
+                    bit_times / 4.0, bit_time_acceptable))
         else:
-            self.dut._log.info("Response came after {} bit times".format(bit_times / 4.0))
+            self.dut._log.info("Response came after {} bit times".format(
+                bit_times / 4.0))
 
         # Read in the transmission data
         result = ""
@@ -231,20 +241,25 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_expect_ack(self):
-        yield self.host_expect_packet(handshake_packet(PID.ACK), "Expected ACK packet.")
+        yield self.host_expect_packet(handshake_packet(PID.ACK),
+                                      "Expected ACK packet.")
 
     @cocotb.coroutine
     def host_expect_nak(self):
-        yield self.host_expect_packet(handshake_packet(PID.NAK), "Expected NAK packet.")
+        yield self.host_expect_packet(handshake_packet(PID.NAK),
+                                      "Expected NAK packet.")
 
     @cocotb.coroutine
     def host_expect_stall(self):
-        yield self.host_expect_packet(handshake_packet(PID.STALL), "Expected STALL packet.")
+        yield self.host_expect_packet(handshake_packet(PID.STALL),
+                                      "Expected STALL packet.")
 
     @cocotb.coroutine
     def host_expect_data_packet(self, pid, data):
         assert pid in (PID.DATA0, PID.DATA1), pid
-        yield self.host_expect_packet(data_packet(pid, data), "Expected %s packet with %r" % (pid.name, data))
+        yield self.host_expect_packet(
+            data_packet(pid, data),
+            "Expected %s packet with %r" % (pid.name, data))
 
     @cocotb.coroutine
     def transaction_setup(self, addr, data, epnum=0):
@@ -252,13 +267,20 @@ class UsbTest:
         yield xmit.join()
 
     @cocotb.coroutine
-    def transaction_data_out(self, addr, ep, data, chunk_size=64, expected=PID.ACK):
+    def transaction_data_out(self,
+                             addr,
+                             ep,
+                             data,
+                             chunk_size=64,
+                             expected=PID.ACK):
         epnum = EndpointType.epnum(ep)
         datax = PID.DATA1
 
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
-            self.dut._log.warning("Sending {} bytes to device".format(len(chunk)))
-            xmit = cocotb.fork(self.host_send(datax, addr, epnum, chunk, expected))
+            self.dut._log.warning("Sending {} bytes to device".format(
+                len(chunk)))
+            xmit = cocotb.fork(
+                self.host_send(datax, addr, epnum, chunk, expected))
             yield xmit.join()
 
     @cocotb.coroutine
@@ -268,7 +290,8 @@ class UsbTest:
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             sent_data = 1
-            self.dut._log.debug("Actual data we're expecting: {}".format(chunk))
+            self.dut._log.debug(
+                "Actual data we're expecting: {}".format(chunk))
 
             recv = cocotb.fork(self.host_recv(datax, addr, epnum, chunk))
             yield recv.join()
@@ -301,11 +324,22 @@ class UsbTest:
 
         # Data sanity check
         if (setup_data[0] & 0x80) == 0x80:
-            raise Exception("setup_data indicated an IN transfer, but you requested an OUT transfer")
-        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
-            raise Exception("setup_data indicates data, but no descriptor data was specified")
-        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
-            raise Exception("setup_data indicates no data, but descriptor data was specified")
+            raise Exception(
+                "setup_data indicated an IN transfer, but you requested"
+                "an OUT transfer"
+            )
+        if (setup_data[7] != 0
+                or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception(
+                "setup_data indicates data, but no descriptor data"
+                "was specified"
+            )
+        if (setup_data[7] == 0
+                and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception(
+                "setup_data indicates no data, but descriptor data"
+                "was specified"
+            )
 
         # Setup stage
         self.dut._log.info("setup stage")
@@ -331,11 +365,22 @@ class UsbTest:
 
         # Data sanity check
         if (setup_data[0] & 0x80) == 0x00:
-            raise Exception("setup_data indicated an OUT transfer, but you requested an IN transfer")
-        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
-            raise Exception("setup_data indicates data, but no descriptor data was specified")
-        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
-            raise Exception("setup_data indicates no data, but descriptor data was specified")
+            raise Exception(
+                "setup_data indicated an OUT transfer, but you requested"
+                "an IN transfer"
+            )
+        if (setup_data[7] != 0
+                or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception(
+                "setup_data indicates data, but no descriptor data"
+                "was specified"
+            )
+        if (setup_data[7] == 0
+                and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception(
+                "setup_data indicates no data, but descriptor data"
+                "was specified"
+            )
 
         # Setup stage
         self.dut._log.info("setup stage")
@@ -346,7 +391,8 @@ class UsbTest:
             self.dut._log.info("data stage")
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
 
-        # Give the signal one clock cycle to perccolate through the event manager
+        # Give the signal one clock cycle to perccolate through
+        # the event manager
         yield RisingEdge(self.dut.clk48_host)
 
         # Status stage
@@ -375,10 +421,10 @@ class UsbTest:
         Args:
             response: Expected descriptor contents as list of bytes.
         """
-        request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE,
-            descriptor_index = 0,
-            lang_id = Descriptor.LangId.UNSPECIFIED,
-            length = length)
+        request = getDescriptorRequest(descriptor_type=Descriptor.Types.DEVICE,
+                                       descriptor_index=0,
+                                       lang_id=Descriptor.LangId.UNSPECIFIED,
+                                       length=length)
         yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
@@ -389,16 +435,13 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
-        request = getDescriptorRequest(descriptor_type = Descriptor.Types.CONFIGURATION,
-                descriptor_index = 0,
-                lang_id = Descriptor.LangId.UNSPECIFIED,
-                length = length)
+        request = getDescriptorRequest(
+            descriptor_type=Descriptor.Types.CONFIGURATION,
+            descriptor_index=0,
+            lang_id=Descriptor.LangId.UNSPECIFIED,
+            length=length)
 
-        yield self.control_transfer_in(
-            self.address,
-            request,
-            response
-        )
+        yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
     def get_string_descriptor(self, lang_id, idx, response):
@@ -409,16 +452,12 @@ class UsbTest:
             idx (int): Descriptor index.
             response: Expected descriptor contents as list of bytes.
         """
-        request = getDescriptorRequest(descriptor_type = Descriptor.Types.STRING,
-                descriptor_index = idx,
-                lang_id = lang_id,
-                length = 255)
+        request = getDescriptorRequest(descriptor_type=Descriptor.Types.STRING,
+                                       descriptor_index=idx,
+                                       lang_id=lang_id,
+                                       length=255)
 
-        yield self.control_transfer_in(
-            self.address,
-            request,
-            response
-        )
+        yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
     def get_device_qualifier(self, length, response):
@@ -428,16 +467,13 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
-        request = getDescriptorRequest(descriptor_type = Descriptor.Types.DEVICE_QUALIFIER,
-                descriptor_index = 0,
-                lang_id = Descriptor.LangId.UNSPECIFIED,
-                length = length)
+        request = getDescriptorRequest(
+            descriptor_type=Descriptor.Types.DEVICE_QUALIFIER,
+            descriptor_index=0,
+            lang_id=Descriptor.LangId.UNSPECIFIED,
+            length=length)
 
-        yield self.control_transfer_in(
-            self.address,
-            request,
-            response
-        )
+        yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
     def set_configuration(self, idx):
@@ -454,6 +490,7 @@ class UsbTest:
             None,
         )
 
+
 class UsbTestValenty(UsbTest):
     """Class for testing ValentyUSB IP core.
     Includes functions to communicate and generate responses without a CPU,
@@ -461,9 +498,11 @@ class UsbTestValenty(UsbTest):
 
     Args:
         dut : Object under test as passed by cocotb.
-        csr_file (str): CSV file containing CSR register addresses, generated by Litex.
-        decouple_clocks (bool, optional): Indicates whether host and device share
-            clock signal. If set to False, you must provide clk48_device clock in test.
+        csr_file (str): CSV file containing CSR register addresses,
+            generated by Litex.
+        decouple_clocks (bool, optional): Indicates whether host and device
+            share clock signal. If set to False, you must provide clk48_device
+            clock in test.
     """
     def __init__(self, dut, csr_file, **kwargs):
         super().__init__(dut, **kwargs)
@@ -546,12 +585,16 @@ class UsbTestValenty(UsbTest):
             yield RisingEdge(self.dut.clk12)
 
         if len(actual_data) < 2:
-            raise TestFailure("data was short (got {}, expected {})".format(expected_data, actual_data))
+            raise TestFailure("data was short (got {}, expected {})".format(
+                expected_data, actual_data))
         actual_data, actual_crc16 = actual_data[:-2], actual_data[-2:]
 
-        self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data, expected_data)
-        self.assertSequenceEqual(expected_data, actual_data, "SETUP packet not received")
-        self.assertSequenceEqual(crc16(expected_data), actual_crc16, "CRC16 not valid")
+        self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data,
+                      expected_data)
+        self.assertSequenceEqual(expected_data, actual_data,
+                                 "SETUP packet not received")
+        self.assertSequenceEqual(crc16(expected_data), actual_crc16,
+                                 "CRC16 not valid")
 
     @cocotb.coroutine
     def drain_setup(self):
@@ -609,13 +652,17 @@ class UsbTestValenty(UsbTest):
                 raise TestFailure("data {} was short".format(actual_data))
             actual_data, actual_crc16 = actual_data[:-2], actual_data[-2:]
 
-            self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data, expected_data)
-            self.assertSequenceEqual(expected_data, actual_data, "DATA packet not correctly received")
-            self.assertSequenceEqual(crc16(expected_data), actual_crc16, "CRC16 not valid")
+            self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data,
+                          expected_data)
+            self.assertSequenceEqual(expected_data, actual_data,
+                                     "DATA packet not correctly received")
+            self.assertSequenceEqual(crc16(expected_data), actual_crc16,
+                                     "CRC16 not valid")
 
     @cocotb.coroutine
     def set_response(self, ep, response):
-        if EndpointType.epdir(ep) == EndpointType.IN and response == EndpointResponse.ACK:
+        if EndpointType.epdir(
+                ep) == EndpointType.IN and response == EndpointResponse.ACK:
             yield self.write(self.csrs['usb_in_ctrl'], EndpointType.epnum(ep))
 
     @cocotb.coroutine
@@ -627,14 +674,18 @@ class UsbTestValenty(UsbTest):
     @cocotb.coroutine
     def transaction_setup(self, addr, data, epnum=0):
         epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
-        epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
 
         xmit = cocotb.fork(self.host_setup(addr, epnum, data))
         yield self.expect_setup(epaddr_out, data)
         yield xmit.join()
 
     @cocotb.coroutine
-    def transaction_data_out(self, addr, ep, data, chunk_size=64, expected=PID.ACK):
+    def transaction_data_out(self,
+                             addr,
+                             ep,
+                             data,
+                             chunk_size=64,
+                             expected=PID.ACK):
         epnum = EndpointType.epnum(ep)
         datax = PID.DATA1
 
@@ -644,7 +695,8 @@ class UsbTestValenty(UsbTest):
             self.dut._log.warning("Sening {} bytes to host".format(len(chunk)))
             # Enable receiving data
             yield self.write(self.csrs['usb_out_ctrl'], (1 << 1))
-            xmit = cocotb.fork(self.host_send(datax, addr, epnum, chunk, expected))
+            xmit = cocotb.fork(
+                self.host_send(datax, addr, epnum, chunk, expected))
             yield self.expect_data(epnum, list(chunk), expected)
             yield xmit.join()
 
@@ -660,7 +712,8 @@ class UsbTestValenty(UsbTest):
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             sent_data = 1
-            self.dut._log.debug("Actual data we're expecting: {}".format(chunk))
+            self.dut._log.debug(
+                "Actual data we're expecting: {}".format(chunk))
             for b in chunk:
                 yield self.write(self.csrs['usb_in_data'], b)
             yield self.write(self.csrs['usb_in_ctrl'], epnum)
@@ -679,7 +732,6 @@ class UsbTestValenty(UsbTest):
 
     @cocotb.coroutine
     def set_data(self, ep, data):
-        _epnum = EndpointType.epnum(ep)
         for b in data:
             yield self.write(self.csrs['usb_in_data'], b)
 
@@ -689,11 +741,16 @@ class UsbTestValenty(UsbTest):
         epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
 
         if (setup_data[0] & 0x80) == 0x80:
-            raise Exception("setup_data indicated an IN transfer, but you requested an OUT transfer")
+            raise Exception(
+                "setup_data indicated an IN transfer, but you requested"
+                "an OUT transfer"
+            )
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         if setup_ev != 0:
-            raise TestFailure("setup_ev should be 0 at the start of the test, was: {:02x}".format(setup_ev))
+            raise TestFailure(
+                "setup_ev should be 0 at the start of the test, was: {:02x}".
+                format(setup_ev))
 
         # Setup stage
         self.dut._log.info("setup stage")
@@ -701,18 +758,29 @@ class UsbTestValenty(UsbTest):
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         if setup_ev != 1:
-            raise TestFailure("setup_ev should be 1, was: {:02x}".format(setup_ev))
+            raise TestFailure(
+                "setup_ev should be 1, was: {:02x}".format(setup_ev))
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
 
         # Data stage
         if descriptor_data is not None:
             out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
             if out_ev != 0:
-                raise TestFailure("out_ev should be 0 at the start of the test, was: {:02x}".format(out_ev))
-        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
-            raise Exception("setup_data indicates data, but no descriptor data was specified")
-        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
-            raise Exception("setup_data indicates no data, but descriptor data was specified")
+                raise TestFailure(
+                    "out_ev should be 0 at the start of the test, was: {:02x}".
+                    format(out_ev))
+        if (setup_data[7] != 0
+                or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception(
+                "setup_data indicates data, but no descriptor data"
+                "was specified"
+            )
+        if (setup_data[7] == 0
+                and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception(
+                "setup_data indicates no data, but descriptor data"
+                "was specified"
+            )
         if descriptor_data is not None:
             self.dut._log.info("data stage")
             yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
@@ -720,7 +788,9 @@ class UsbTestValenty(UsbTest):
             yield RisingEdge(self.dut.clk12)
             out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
             if out_ev != 1:
-                raise TestFailure("out_ev should be 1 at the end of the test, was: {:02x}".format(out_ev))
+                raise TestFailure(
+                    "out_ev should be 1 at the end of the test, was: {:02x}".
+                    format(out_ev))
             yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
 
         # Status stage
@@ -728,12 +798,16 @@ class UsbTestValenty(UsbTest):
 
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 0:
-            raise TestFailure("in_ev should be 0 at the start of the test, was: {:02x}".format(in_ev))
+            raise TestFailure(
+                "in_ev should be 0 at the start of the test, was: {:02x}".
+                format(in_ev))
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 1:
-            raise TestFailure("in_ev should be 1 at the end of the test, was: {:02x}".format(in_ev))
+            raise TestFailure(
+                "in_ev should be 1 at the end of the test, was: {:02x}".format(
+                    in_ev))
         yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
 
     @cocotb.coroutine
@@ -742,11 +816,16 @@ class UsbTestValenty(UsbTest):
         epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
 
         if (setup_data[0] & 0x80) == 0x00:
-            raise Exception("setup_data indicated an OUT transfer, but you requested an IN transfer")
+            raise Exception(
+                "setup_data indicated an OUT transfer, but you requested"
+                "an IN transfer"
+            )
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         if setup_ev != 0:
-            raise TestFailure("setup_ev should be 0 at the start of the test, was: {:02x}".format(setup_ev))
+            raise TestFailure(
+                "setup_ev should be 0 at the start of the test, was: {:02x}".
+                format(setup_ev))
 
         # Setup stage
         self.dut._log.info("setup stage")
@@ -754,42 +833,59 @@ class UsbTestValenty(UsbTest):
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         if setup_ev != 1:
-            raise TestFailure("setup_ev should be 1, was: {:02x}".format(setup_ev))
+            raise TestFailure(
+                "setup_ev should be 1, was: {:02x}".format(setup_ev))
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
 
         # Data stage
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 0:
-            raise TestFailure("in_ev should be 0 at the start of the test, was: {:02x}".format(in_ev))
-        if (setup_data[7] != 0 or setup_data[6] != 0) and descriptor_data is None:
-            raise Exception("setup_data indicates data, but no descriptor data was specified")
-        if (setup_data[7] == 0 and setup_data[6] == 0) and descriptor_data is not None:
-            raise Exception("setup_data indicates no data, but descriptor data was specified")
+            raise TestFailure(
+                "in_ev should be 0 at the start of the test, was: {:02x}".
+                format(in_ev))
+        if (setup_data[7] != 0
+                or setup_data[6] != 0) and descriptor_data is None:
+            raise Exception(
+                "setup_data indicates data, but no descriptor data"
+                "was specified"
+            )
+        if (setup_data[7] == 0
+                and setup_data[6] == 0) and descriptor_data is not None:
+            raise Exception(
+                "setup_data indicates no data, but descriptor data"
+                "was specified"
+            )
         if descriptor_data is not None:
             self.dut._log.info("data stage")
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
 
-        # Give the signal one clock cycle to perccolate through the event manager
+        # Give the signal one clock cycle to perccolate
+        # through the event manager
         yield RisingEdge(self.dut.clk12)
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 1:
-            raise TestFailure("in_ev should be 1 at the end of the test, was: {:02x}".format(in_ev))
+            raise TestFailure(
+                "in_ev should be 1 at the end of the test, was: {:02x}".format(
+                    in_ev))
         yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
 
         # Status stage
         self.dut._log.info("status stage")
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
         if out_ev != 0:
-            raise TestFailure("out_ev should be 0 at the start of the test, was: {:02x}".format(out_ev))
+            raise TestFailure(
+                "out_ev should be 0 at the start of the test, was: {:02x}".
+                format(out_ev))
         yield self.transaction_status_out(addr, epaddr_out)
         yield RisingEdge(self.dut.clk12)
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
         if out_ev != 1:
-            raise TestFailure("out_ev should be 1 at the end of the test, was: {:02x}".format(out_ev))
+            raise TestFailure(
+                "out_ev should be 1 at the end of the test, was: {:02x}".
+                format(out_ev))
         yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
 
     @cocotb.coroutine
     def set_device_address(self, address):
         yield super().set_device_address(address)
         yield self.write(self.csrs['usb_address'], address)
-
