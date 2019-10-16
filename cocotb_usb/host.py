@@ -344,6 +344,7 @@ class UsbTest:
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        yield Timer(30, "us")
 
         # Data stage
         if descriptor_data is not None:
@@ -386,6 +387,7 @@ class UsbTest:
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
 
+        yield Timer(30, "us")
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")

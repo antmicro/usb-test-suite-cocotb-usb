@@ -4,6 +4,7 @@ from .usb.descriptors import (EndpointDescriptor, InterfaceDescriptor,
                               ConfigDescriptor, DeviceDescriptor,
                               StringDescriptorZero, StringDescriptor,
                               DeviceQualifierDescriptor)
+from .usb.class_specific.dfu import DfuFunctionalDescriptor
 
 
 def getVal(val, minimum, maximum, isHexString=False):
@@ -64,8 +65,26 @@ class UsbJsonParser():
         return EndpointDescriptor(bLength, bEndpointAddress, bmAttributes,
                                   wMaxPacketSize, bInterval)
 
+    def parseDfuFunctional(self, f):
+        return DfuFunctionalDescriptor(
+            bLength=getVal(f["bLength"], 0, 0xFF),
+            bDescriptorType=getVal(f["bDescriptorType"], 0, 0xFF),
+            bmAttributes=getVal(f["bmAttributes"], 0, 0xFF, True),
+            wDetachTimeout=getVal(f["wDetachTimeout"], 0, 0xFFFF),
+            wTransferSize=getVal(f["wTransferSize"], 0, 0xFFFF),
+            bcdDFUVersion=getVal(f["bcdDFUVersion"], 0, 0xFFFF, True)
+            )
+
+    def parseDescriptor(self, field):
+        descriptor = None
+        if field["name"] == "DFU Functional":
+            descriptor = self.parseDfuFunctional(field)
+        elif field["name"] == "Endpoint":
+            descriptor = self.parseEndpoint(field)
+        return descriptor
+
     def parseInterface(self, intf):
-        endpoint_list = [self.parseEndpoint(e) for e in intf["Endpoint"]]
+        sub_list = [self.parseDescriptor(e) for e in intf["Subdescriptors"]]
         return InterfaceDescriptor(
             bLength=getVal(intf["bLength"], 0, 0xFF),
             bInterfaceNumber=getVal(intf["bInterfaceNumber"], 0, 0xFF),
@@ -75,7 +94,7 @@ class UsbJsonParser():
             bInterfaceSubclass=getVal(intf["bInterfaceSubClass"], 0, 0xFF),
             bInterfaceProtocol=getVal(intf["bInterfaceProtocol"], 0, 0xFF),
             iInterface=getVal(intf["iInterface"], 0, 0xFF),
-            endpoints=endpoint_list)
+            subdescriptors=sub_list)
 
     def getDeviceDescriptor(self):
         return DeviceDescriptor(

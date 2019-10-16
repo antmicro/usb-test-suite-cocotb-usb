@@ -14,6 +14,13 @@ class Descriptor():
         OTHER_SPEED_CONFIGURATION = 7
         INTERFACE_POWER = 8
 
+        # Class specific types
+        CLASS_SPECIFIC_DEVICE = 0x21
+        CLASS_SPECIFIC_CONFIGURATION = 0x22
+        CLASS_SPECIFIC_STRING = 0x23
+        CLASS_SPECIFIC_INTERFACE = 0x24
+        CLASS_SPECIFIC_ENDPOINT = 0x25
+
 
 class DeviceDescriptor(Descriptor):
     """Class representing USB device descriptor"""
@@ -118,7 +125,7 @@ class InterfaceDescriptor(Descriptor):
                  bInterfaceProtocol,
                  iInterface,
                  bDescriptorType=Descriptor.Types.INTERFACE,
-                 endpoints=[]):
+                 subdescriptors=[]):
         self.bLength = bLength
         self.bInterfaceNumber = bInterfaceNumber
         self.bAlternateSetting = bAlternateSetting
@@ -128,7 +135,7 @@ class InterfaceDescriptor(Descriptor):
         self.bInterfaceProtocol = bInterfaceProtocol
         self.iInterface = iInterface
         self.bDescriptorType = bDescriptorType
-        self.endpoints = endpoints
+        self.subdescriptors = subdescriptors
 
     def get(self):
         """Return descriptor contents as list of bytes"""
@@ -137,7 +144,7 @@ class InterfaceDescriptor(Descriptor):
             self.bAlternateSetting, self.bNumEndpoints, self.bInterfaceClass,
             self.bInterfaceSubclass, self.bInterfaceProtocol, self.iInterface
         ]
-        desc += [b for e in self.endpoints for b in e.get()]
+        desc += [b for e in self.subdescriptors for b in e.get()]
         return desc
 
 
