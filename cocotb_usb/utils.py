@@ -1,4 +1,5 @@
 import csv
+from cocotb.result import TestFailure
 
 
 def grouper_tofit(n, iterable):
@@ -30,3 +31,8 @@ def parse_csr(csr_file="csr.csv"):
             if row[0] == 'csr_register':
                 csrs[row[1]] = int(row[2], base=0)
     return csrs
+
+
+def assertEqual(a, b, msg):
+    if a != b:
+        raise TestFailure("{} vs {} - {}".format(a, b, msg))
