@@ -25,13 +25,14 @@ class DfuAttributes:
 
 
 class DfuFunctionalDescriptor:
+    TYPE = 0x21
     def __init__(self,
                  bmAttributes,
                  wDetachTimeout,
                  wTransferSize,
                  bcdDFUVersion,
                  bLength=0x09,
-                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_DEVICE
+                 bDescriptorType=TYPE
                  ):
         self.bmAttributes = bmAttributes
         self.wDetachTimeout = wDetachTimeout

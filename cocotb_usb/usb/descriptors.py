@@ -13,6 +13,7 @@ class Descriptor():
         DEVICE_QUALIFIER = 6
         OTHER_SPEED_CONFIGURATION = 7
         INTERFACE_POWER = 8
+        BOS = 0x0F  # Added in USB 3.0 and 2.0 LPM
 
         # Class specific types
         CLASS_SPECIFIC_DEVICE = 0x21
