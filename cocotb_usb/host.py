@@ -3,8 +3,8 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, ClockCycles
 from cocotb.result import TestFailure, ReturnValue
 
-from .usb.descriptors import (Descriptor, getDescriptorRequest,
-                              setAddressRequest, setConfigurationRequest)
+from .descriptors import (Descriptor, getDescriptorRequest,
+                          setAddressRequest, setConfigurationRequest)
 from .usb.pid import PID
 from .usb.endpoint import EndpointType, EndpointResponse
 from .usb.packet import (wrap_packet, token_packet, data_packet, sof_packet,

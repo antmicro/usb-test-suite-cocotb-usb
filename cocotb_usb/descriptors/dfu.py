@@ -1,4 +1,5 @@
-from ..descriptors import Descriptor, USBDeviceRequest
+from struct import pack
+from . import USBDeviceRequest
 
 DFU_CLASS_CODE = 0xFE       # Application specific class code
 DFU_SUBCLASS_CODE = 0x01    # Device Firmware Update code
@@ -26,6 +27,8 @@ class DfuAttributes:
 
 class DfuFunctionalDescriptor:
     TYPE = 0x21
+    FORMAT = "<3B3W"
+
     def __init__(self,
                  bmAttributes,
                  wDetachTimeout,
@@ -54,6 +57,15 @@ class DfuFunctionalDescriptor:
                 self.bcdDFUVersion & 0x00FF,
                 self.bcdDFUVersion >> 8
         ]
+
+        def __bytes__(self):
+            return pack(self.FORMAT,
+                        self.bLength,
+                        self.bDescriptorType,
+                        self.bmAttributes,
+                        self.wDetachTimeout,
+                        self.wTransferSize,
+                        self.bcdDFUVersion)
 
 
 class DfuRequest(USBDeviceRequest):

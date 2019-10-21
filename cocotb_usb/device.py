@@ -1,10 +1,10 @@
 import json
-from .usb.descriptors import (Descriptor, EndpointDescriptor,
-                              InterfaceDescriptor,
-                              ConfigDescriptor, DeviceDescriptor,
-                              StringDescriptorZero, StringDescriptor,
-                              DeviceQualifierDescriptor)
-from .usb.class_specific.dfu import DfuFunctionalDescriptor, DFU_CLASS_CODE
+from .descriptors import (Descriptor, EndpointDescriptor,
+                          InterfaceDescriptor,
+                          ConfigDescriptor, DeviceDescriptor,
+                          StringDescriptorZero, StringDescriptor,
+                          DeviceQualifierDescriptor)
+from .descriptors.dfu import DfuFunctionalDescriptor, DFU_CLASS_CODE
 
 
 def getVal(val, minimum, maximum):
