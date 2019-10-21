@@ -1,10 +1,13 @@
-class Descriptor():
+from struct import pack
+
+
+class Descriptor:
     """Base class for storing common descriptor elements"""
-    class LangId():
+    class LangId:
         UNSPECIFIED = 0x0000
         ENG = 0x0409
 
-    class Types():
+    class Types:
         DEVICE = 1
         CONFIGURATION = 2
         STRING = 3
@@ -13,10 +16,25 @@ class Descriptor():
         DEVICE_QUALIFIER = 6
         OTHER_SPEED_CONFIGURATION = 7
         INTERFACE_POWER = 8
+        BOS = 0x0F  # Added in USB 3.0 and 2.0 LPM
+
+        # Class specific types
+        CLASS_SPECIFIC_DEVICE = 0x21
+        CLASS_SPECIFIC_CONFIGURATION = 0x22
+        CLASS_SPECIFIC_STRING = 0x23
+        CLASS_SPECIFIC_INTERFACE = 0x24
+        CLASS_SPECIFIC_ENDPOINT = 0x25
+
+    def get(self):
+        """Return descriptor contents as a list of bytes"""
+        return list(bytes(self))
 
 
 class DeviceDescriptor(Descriptor):
     """Class representing USB device descriptor"""
+
+    FORMAT = "<BBH4B3H4B"
+
     def __init__(self,
                  bLength,
                  bcdUSB,
@@ -47,20 +65,29 @@ class DeviceDescriptor(Descriptor):
         self.iSerialNumber = iSerialNumber
         self.bNumConfigurations = bNumConfigurations
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        return [
-            self.bLength, self.bDescriptorType, self.bcdUSB & 0x00FF,
-            self.bcdUSB >> 8, self.bDeviceClass, self.bDeviceSubClass,
-            self.bDeviceProtocol, self.bMaxPacketSize0, self.idVendor & 0x00FF,
-            self.idVendor >> 8, self.idProduct & 0x00FF, self.idProduct >> 8,
-            self.bcdDevice & 0x00FF, self.bcdDevice >> 8, self.iManufacturer,
-            self.iProduct, self.iSerialNumber, self.bNumConfigurations
-        ]
+    def __bytes__(self):
+        return pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.bcdUSB,
+                    self.bDeviceClass,
+                    self.bDeviceSubClass,
+                    self.bDeviceProtocol,
+                    self.bMaxPacketSize0,
+                    self.idVendor,
+                    self.idProduct,
+                    self.bcdDevice,
+                    self.iManufacturer,
+                    self.iProduct,
+                    self.iSerialNumber,
+                    self.bNumConfigurations)
 
 
 class EndpointDescriptor(Descriptor):
     """Class representing standard USB endpoint descriptor"""
+
+    FORMAT = "<4BHB"
+
     class Direction:
         OUT = 0
         IN = 1
@@ -97,17 +124,21 @@ class EndpointDescriptor(Descriptor):
         self.bInterval = bInterval
         self.bDescriptorType = bDescriptorType
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        return [
-            self.bLength, self.bDescriptorType, self.bEndpointAddress,
-            self.bmAttributes, self.wMaxPacketSize & 0x00FF,
-            self.wMaxPacketSize >> 8, self.bInterval
-        ]
+    def __bytes__(self):
+        return pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.bEndpointAddress,
+                    self.bmAttributes,
+                    self.wMaxPacketSize,
+                    self.bInterval)
 
 
 class InterfaceDescriptor(Descriptor):
     """Class representing standard USB interface descriptor"""
+
+    FORMAT = "<BB7B"
+
     def __init__(self,
                  bLength,
                  bInterfaceNumber,
@@ -118,7 +149,7 @@ class InterfaceDescriptor(Descriptor):
                  bInterfaceProtocol,
                  iInterface,
                  bDescriptorType=Descriptor.Types.INTERFACE,
-                 endpoints=[]):
+                 subdescriptors=[]):
         self.bLength = bLength
         self.bInterfaceNumber = bInterfaceNumber
         self.bAlternateSetting = bAlternateSetting
@@ -128,17 +159,21 @@ class InterfaceDescriptor(Descriptor):
         self.bInterfaceProtocol = bInterfaceProtocol
         self.iInterface = iInterface
         self.bDescriptorType = bDescriptorType
-        self.endpoints = endpoints
+        self.subdescriptors = subdescriptors
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        desc = [
-            self.bLength, self.bDescriptorType, self.bInterfaceNumber,
-            self.bAlternateSetting, self.bNumEndpoints, self.bInterfaceClass,
-            self.bInterfaceSubclass, self.bInterfaceProtocol, self.iInterface
-        ]
-        desc += [b for e in self.endpoints for b in e.get()]
-        return desc
+    def __bytes__(self):
+        desc = pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.bInterfaceNumber,
+                    self.bAlternateSetting,
+                    self.bNumEndpoints,
+                    self.bInterfaceClass,
+                    self.bInterfaceSubclass,
+                    self.bInterfaceProtocol,
+                    self.iInterface)
+        subdesc = b''.join([bytes(e) for e in self.subdescriptors])
+        return b''.join([desc, subdesc])
 
 
 class ConfigDescriptor(Descriptor):
@@ -146,6 +181,9 @@ class ConfigDescriptor(Descriptor):
     Can also represent OTHER_SPEED_CONFIGURATION descriptor, as they have
     identical contents.
     """
+
+    FORMAT = "<BBH5B"
+
     class Attributes():
         NONE = 0
         BUS_POWERED = 1 << 7  # USB 1.0 only, otherwise reserved
@@ -173,16 +211,18 @@ class ConfigDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
         self.interfaces = interfaces
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        desc = [
-            self.bLength, self.bDescriptorType, self.wTotalLength & 0x00FF,
-            self.wTotalLength >> 8, self.bNumInterfaces,
-            self.bConfigurationValue, self.iConfiguration, self.bmAttributes,
-            self.bMaxPower
-        ]
-        desc += [b for i in self.interfaces for b in i.get()]
-        return desc
+    def __bytes__(self):
+        desc = pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.wTotalLength,
+                    self.bNumInterfaces,
+                    self.bConfigurationValue,
+                    self.iConfiguration,
+                    self.bmAttributes,
+                    self.bMaxPower)
+        subdesc = b''.join([bytes(i) for i in self.interfaces])
+        return b''.join([desc, subdesc])
 
 
 class StringDescriptorZero(Descriptor):
@@ -195,22 +235,18 @@ class StringDescriptorZero(Descriptor):
                  bLength=None,
                  bDescriptorType=Descriptor.Types.STRING):
         self.wLangId = wLangIdList
-        self.bLength = bLength
+        if bLength is None:
+            self.bLength = 2 + 2*len(wLangIdList)
+        else:
+            self.bLength = bLength
         self.bDescriptorType = bDescriptorType
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        descriptor = []
-        for i in self.wLangId:
-            descriptor.append(i & 0x00FF)
-            descriptor.append(i >> 8)
-        descriptor.insert(0, self.bDescriptorType)
-        if self.bLength is None:
-            bLength = 1 + len(descriptor)
-        else:
-            bLength = self.bLength
-        descriptor.insert(0, bLength)
-        return descriptor
+    def __bytes__(self):
+        desc = pack("<BB{}H".format(len(self.wLangId)),
+                    self.bLength,
+                    self.bDescriptorType,
+                    *self.wLangId)
+        return desc
 
 
 class StringDescriptor(Descriptor):
@@ -220,26 +256,25 @@ class StringDescriptor(Descriptor):
                  bLength=None,
                  bDescriptorType=Descriptor.Types.STRING):
         self.bString = bString
-        self.bLength = bLength
+        if bLength is None:
+            self.bLength = 2 + 2*len(bString)
+        else:
+            self.bLength = bLength
         self.bDescriptorType = bDescriptorType
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        descriptor = []
-        for c in self.bString:
-            descriptor.append(ord(c) & 0x00FF)
-            descriptor.append(ord(c) >> 8)
-        descriptor.insert(0, self.bDescriptorType)
-        if self.bLength is None:
-            bLength = 1 + len(descriptor)
-        else:
-            bLength = self.bLength
-        descriptor.insert(0, bLength)
-        return descriptor
+    def __bytes__(self):
+        header = pack("<BB",
+                      self.bLength,
+                      self.bDescriptorType)
+        desc = header + self.bString.encode("utf-16-le")
+        return desc
 
 
 class DeviceQualifierDescriptor(Descriptor):
     """Class representing standard USB device qualifier descriptor"""
+
+    FORMAT = "<BBH6B"
+
     def __init__(self,
                  bcdUSB,
                  bDeviceClass,
@@ -258,14 +293,17 @@ class DeviceQualifierDescriptor(Descriptor):
         self.bLength = bLength
         self.bDescriptorType = bDescriptorType
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        return [
-            self.bLength, self.bDescriptorType, self.bcdUSB & 0x00FF,
-            self.bcdUSB >> 8, self.bDeviceClass, self.bDeviceSubClass,
-            self.bDeviceProtocol, self.bMaxPacketSize0,
-            self.bNumConfigurations, 0x00
-        ]  # Reserved for future use
+    def __bytes__(self):
+        return pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.bcdUSB,
+                    self.bDeviceClass,
+                    self.bDeviceSubClass,
+                    self.bDeviceProtocol,
+                    self.bMaxPacketSize0,
+                    self.bNumConfigurations,
+                    0x00)  # Reserved for future use
 
 
 class FeatureSelector:
@@ -285,6 +323,9 @@ class FeatureSelector:
 
 class USBDeviceRequest():
     """Class grouping common USB request definitions"""
+
+    FORMAT = "<BB3H"
+
     class Type():
         # Format constants from USB Spec 9.3
         # Direction
@@ -316,6 +357,19 @@ class USBDeviceRequest():
         SET_INTERFACE = 11
         SYNCH_FRAME = 12
 
+    def __init__(self,
+                 bmRequestType,
+                 bRequest,
+                 wValue,
+                 wIndex,
+                 wLength,
+                 data=None):
+        self.bmRequestType = bmRequestType
+        self.bRequest = bRequest
+        self.wValue = wValue
+        self.wIndex = wIndex
+        self.wLength = wLength
+
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
         """Create a USB request with provided values"""
         return [
@@ -328,6 +382,14 @@ class USBDeviceRequest():
             wLength & 0x00FF,
             wLength >> 8,
         ]
+
+    def __bytes__(self):
+        return pack(self.FORMAT,
+                    self.bmRequestType,
+                    self.bRequest,
+                    self.wValue,
+                    self.wIndex,
+                    self.wLength)
 
 
 def setAddressRequest(address):

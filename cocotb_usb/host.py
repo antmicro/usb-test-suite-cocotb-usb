@@ -3,15 +3,15 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, ClockCycles
 from cocotb.result import TestFailure, ReturnValue
 
-from .usb.descriptors import (Descriptor, getDescriptorRequest,
-                              setAddressRequest, setConfigurationRequest)
+from .descriptors import (Descriptor, getDescriptorRequest,
+                          setAddressRequest, setConfigurationRequest)
 from .usb.pid import PID
 from .usb.endpoint import EndpointType, EndpointResponse
 from .usb.packet import (wrap_packet, token_packet, data_packet, sof_packet,
                          handshake_packet, crc16)
 from .usb.pprint import pp_packet
 
-from .utils import grouper_tofit, parse_csr
+from .utils import grouper_tofit, parse_csr, assertEqual
 
 # Litex imports
 from wishbone import WishboneMaster
@@ -85,14 +85,6 @@ class UsbTest:
         # Device address should have reset
         self.address = 0
 
-    def assertEqual(self, a, b, msg):
-        if a != b:
-            raise TestFailure("{} != {} - {}".format(a, b, msg))
-
-    def assertSequenceEqual(self, a, b, msg):
-        if a != b:
-            raise TestFailure("{} vs {} - {}".format(a, b, msg))
-
     def print_ep(self, epaddr, msg, *args):
         self.dut._log.info("ep(%i, %s): %s" %
                            (EndpointType.epnum(epaddr),
@@ -106,7 +98,7 @@ class UsbTest:
         # Packet gets multiplied by 4x so we can send using the
         # usb48 clock instead of the usb12 clock.
         packet = 'JJJJJJJJ' + wrap_packet(packet)
-        self.assertEqual('J', packet[-1], "Packet didn't end in J: " + packet)
+        assertEqual('J', packet[-1], "Packet didn't end in J: " + packet)
 
         for v in packet:
             if v == '0' or v == '_':
@@ -237,7 +229,7 @@ class UsbTest:
         # Check the packet received matches
         expected = pp_packet(wrap_packet(packet))
         actual = pp_packet(result)
-        self.assertSequenceEqual(expected, actual, msg)
+        assertEqual(expected, actual, msg)
 
     @cocotb.coroutine
     def host_expect_ack(self):
@@ -344,6 +336,7 @@ class UsbTest:
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        yield Timer(30, "us")
 
         # Data stage
         if descriptor_data is not None:
@@ -386,6 +379,7 @@ class UsbTest:
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
 
+        yield Timer(30, "us")
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")
@@ -591,10 +585,10 @@ class UsbTestValenty(UsbTest):
 
         self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data,
                       expected_data)
-        self.assertSequenceEqual(expected_data, actual_data,
-                                 "SETUP packet not received")
-        self.assertSequenceEqual(crc16(expected_data), actual_crc16,
-                                 "CRC16 not valid")
+        assertEqual(expected_data, actual_data,
+                    "SETUP packet not received")
+        assertEqual(crc16(expected_data), actual_crc16,
+                    "CRC16 not valid")
 
     @cocotb.coroutine
     def drain_setup(self):
@@ -654,10 +648,10 @@ class UsbTestValenty(UsbTest):
 
             self.print_ep(epaddr, "Got: %r (expected: %r)", actual_data,
                           expected_data)
-            self.assertSequenceEqual(expected_data, actual_data,
-                                     "DATA packet not correctly received")
-            self.assertSequenceEqual(crc16(expected_data), actual_crc16,
-                                     "CRC16 not valid")
+            assertEqual(expected_data, actual_data,
+                        "DATA packet not correctly received")
+            assertEqual(crc16(expected_data), actual_crc16,
+                        "CRC16 not valid")
 
     @cocotb.coroutine
     def set_response(self, ep, response):
