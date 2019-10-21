@@ -36,3 +36,12 @@ def parse_csr(csr_file="csr.csv"):
 def assertEqual(a, b, msg):
     if a != b:
         raise TestFailure("{} vs {} - {}".format(a, b, msg))
+
+
+def getVal(val, minimum, maximum):
+    '''Helper function to get values in given range'''
+    if isinstance(val, str):
+        val = int(val, base=16)
+    if not minimum <= val <= maximum:
+        raise ValueError()
+    return val

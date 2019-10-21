@@ -4,16 +4,8 @@ from .descriptors import (Descriptor, EndpointDescriptor,
                           ConfigDescriptor, DeviceDescriptor,
                           StringDescriptorZero, StringDescriptor,
                           DeviceQualifierDescriptor)
-from .descriptors.dfu import DfuFunctionalDescriptor, DFU_CLASS_CODE
-
-
-def getVal(val, minimum, maximum):
-    '''Helper function to get values in given range'''
-    if isinstance(val, str):
-        val = int(val, base=16)
-    if not minimum <= val <= maximum:
-        raise ValueError()
-    return val
+from .descriptors.dfu import DFU_CLASS_CODE, dfuParsers
+from .utils import getVal
 
 
 def isStandard(descriptorType):
@@ -29,20 +21,6 @@ def isStandard(descriptorType):
         return True
     else:
         return False
-
-
-def parseDfuFunctional(f):
-    return DfuFunctionalDescriptor(
-        bLength=getVal(f["bLength"], 0, 0xFF),
-        bDescriptorType=getVal(f["bDescriptorType"], 0, 0xFF),
-        bmAttributes=getVal(f["bmAttributes"], 0, 0xFF),
-        wDetachTimeout=getVal(f["wDetachTimeout"], 0, 0xFFFF),
-        wTransferSize=getVal(f["wTransferSize"], 0, 0xFFFF),
-        bcdDFUVersion=getVal(f["bcdDFUVersion"], 0, 0xFFFF)
-        )
-
-
-dfuParsers = {DfuFunctionalDescriptor.TYPE: parseDfuFunctional}
 
 
 def parseDevice(field):

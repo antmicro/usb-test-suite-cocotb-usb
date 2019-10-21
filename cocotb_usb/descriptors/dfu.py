@@ -1,5 +1,6 @@
 from struct import pack
-from . import USBDeviceRequest
+from . import Descriptor, USBDeviceRequest
+from ..utils import getVal
 
 DFU_CLASS_CODE = 0xFE       # Application specific class code
 DFU_SUBCLASS_CODE = 0x01    # Device Firmware Update code
@@ -25,9 +26,9 @@ class DfuAttributes:
         YES = 1 << 0
 
 
-class DfuFunctionalDescriptor:
+class DfuFunctionalDescriptor(Descriptor):
     TYPE = 0x21
-    FORMAT = "<3B3W"
+    FORMAT = "<3B3H"
 
     def __init__(self,
                  bmAttributes,
@@ -44,28 +45,14 @@ class DfuFunctionalDescriptor:
         self.bLength = bLength
         self.bDescriptorType = bDescriptorType
 
-    def get(self):
-        """Return descriptor contents as list of bytes"""
-        return [
-                self.bLength,
-                self.bDescriptorType,
-                self.bmAttributes,
-                self.wDetachTimeout & 0x00FF,
-                self.wDetachTimeout >> 8,
-                self.wTransferSize & 0x00FF,
-                self.wTransferSize >> 8,
-                self.bcdDFUVersion & 0x00FF,
-                self.bcdDFUVersion >> 8
-        ]
-
-        def __bytes__(self):
-            return pack(self.FORMAT,
-                        self.bLength,
-                        self.bDescriptorType,
-                        self.bmAttributes,
-                        self.wDetachTimeout,
-                        self.wTransferSize,
-                        self.bcdDFUVersion)
+    def __bytes__(self):
+        return pack(self.FORMAT,
+                    self.bLength,
+                    self.bDescriptorType,
+                    self.bmAttributes,
+                    self.wDetachTimeout,
+                    self.wTransferSize,
+                    self.bcdDFUVersion)
 
 
 class DfuRequest(USBDeviceRequest):
@@ -77,3 +64,17 @@ class DfuRequest(USBDeviceRequest):
         DFU_CLRSTATUS = 4
         DFU_GETSTATE = 5
         DFU_ABORT = 6
+
+
+def parseDfuFunctional(f):
+    return DfuFunctionalDescriptor(
+        bLength=getVal(f["bLength"], 0, 0xFF),
+        bDescriptorType=getVal(f["bDescriptorType"], 0, 0xFF),
+        bmAttributes=getVal(f["bmAttributes"], 0, 0xFF),
+        wDetachTimeout=getVal(f["wDetachTimeout"], 0, 0xFFFF),
+        wTransferSize=getVal(f["wTransferSize"], 0, 0xFFFF),
+        bcdDFUVersion=getVal(f["bcdDFUVersion"], 0, 0xFFFF)
+        )
+
+
+dfuParsers = {DfuFunctionalDescriptor.TYPE: parseDfuFunctional}
