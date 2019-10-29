@@ -5,6 +5,7 @@ from .descriptors import (Descriptor, EndpointDescriptor,
                           StringDescriptorZero, StringDescriptor,
                           DeviceQualifierDescriptor)
 from .descriptors.dfu import DFU_CLASS_CODE, dfuParsers
+from .descriptors.cdc import CDC, cdcParsers
 from .utils import getVal
 
 
@@ -82,7 +83,7 @@ def parseEndpoint(e):
     bLength = getVal(e["bLength"], 0, 0xFF)
 
     if isinstance(e["bEndpointAddress"], str):
-        bmAttributes = getVal(e["bEndpointAddress"], 0, 0xFF)
+        bEndpointAddress = getVal(e["bEndpointAddress"], 0, 0xFF)
     else:
         if e["bEndpointAddress"][1] == "IN":
             endpointDir = EndpointDescriptor.Direction.IN
@@ -132,12 +133,13 @@ def parseEndpoint(e):
 
 def getClassParsers(c):
     parsers = {
-            DFU_CLASS_CODE: dfuParsers
+            DFU_CLASS_CODE: dfuParsers,
+            CDC.Type.COMM: cdcParsers
             }
     try:
         return parsers[c]
     except KeyError:
-        print("No parsers found for class {}".format(c))
+        print("No class-specific parsers found for {}".format(c))
         return None
 
 
@@ -205,7 +207,11 @@ def parse(field, customParsers=None):
 
 
 class UsbDevice:
-    '''Object for storing USB descriptors information in a structured manner'''
+    """Object for storing USB descriptors information in a structured manner
+
+    Args:
+        config_file (path): JSON file containing descriptor values.
+    """
     def __init__(self, config_file):
         self.configDescriptor = {}
         self.descriptors = []  # Other descriptors
