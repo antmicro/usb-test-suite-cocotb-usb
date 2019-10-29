@@ -22,7 +22,7 @@
 
 import struct
 
-from . import standard
+from . import Descriptor
 
 """
 CDC specific descriptors
@@ -51,7 +51,7 @@ CDC_PROTOCOL_V25TER = 0x01   # Common AT commands
 # Many other protocols omitted.
 
 class Header:
-    bDescriptorType = standard.DESCRIPTOR_TYPE_CLASS_SPECIFIC_INTERFACE
+    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = 0x00
     fmt = "<BBB" + "H"
     bLength = struct.calcsize(fmt)
@@ -74,7 +74,7 @@ class Header:
 
 
 class CallManagement:
-    bDescriptorType = standard.DESCRIPTOR_TYPE_CLASS_SPECIFIC_INTERFACE
+    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = 0x01
     fmt = "<BBB" + "BB"
     bLength = struct.calcsize(fmt)
@@ -100,7 +100,7 @@ class CallManagement:
 
 
 class AbstractControlManagement:
-    bDescriptorType = standard.DESCRIPTOR_TYPE_CLASS_SPECIFIC_INTERFACE
+    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = 0x02
     fmt = "<BBB" + "B"
     bLength = struct.calcsize(fmt)
@@ -124,7 +124,7 @@ class AbstractControlManagement:
 
 
 class DirectLineManagement:
-    bDescriptorType = standard.DESCRIPTOR_TYPE_CLASS_SPECIFIC_INTERFACE
+    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = 0x03
     fmt = "<BBB" + "B"
     bLength = struct.calcsize(fmt)
@@ -147,7 +147,7 @@ class DirectLineManagement:
 
 
 class Union:
-    bDescriptorType = standard.DESCRIPTOR_TYPE_CLASS_SPECIFIC_INTERFACE
+    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = 0x06
     fixed_fmt = "<BBB" + "B"     # not including bSlaveInterface_list
     fixed_bLength = struct.calcsize(fixed_fmt)
