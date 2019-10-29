@@ -34,25 +34,52 @@ This PDF is a good reference:
 * Author(s): Scott Shawcroft
 """
 
-CDC_CLASS_DEVICE = 0x02
-CDC_CLASS_COMM = 0x02
-CDC_CLASS_DATA = 0x0A
+class CDC(Descriptor):
+    class Type:
+        DEVICE = 0x02
+        COMM = 0x02
+        DATA = 0x0A
 
-CDC_SUBCLASS_DLCM = 0x01
-CDC_SUBCLASS_ACM = 0x02  # Abstract Control Model
-CDC_SUBCLASS_TCM = 0x03
-CDC_SUBCLASS_MCCM = 0x04
-CDC_SUBCLASS_CCM = 0x05
-CDC_SUBCLASS_ETH = 0x06
-CDC_SUBCLASS_ATM = 0x07
+    class Subtype:
+        HEADER = 0x00
+        CM = 0x01
+        ACM = 0x02
+        DLM = 0x03
+        TR = 0x04
+        TCLSRC = 0x05
+        UNION = 0x06
+        CS = 0x07
+        TOM = 0x08
+        USBT = 0x09
+        NCT = 0x0A
+        PUF = 0x0B
+        EU = 0x0C
+        MCM = 0x0D
+        CAPIC = 0x0E
+        EN = 0x0F
+        ATMN = 0x10
+        # 0x11-0xFF Reserved (future use)
 
-CDC_PROTOCOL_NONE = 0x0
-CDC_PROTOCOL_V25TER = 0x01   # Common AT commands
-# Many other protocols omitted.
+    class Subclass:
+        UNUSED = 0x00  # Only for Data Interface Class
+        DLCM = 0x01
+        ACM = 0x02  # Abstract Control Model
+        TCM = 0x03
+        MCCM = 0x04
+        CCM = 0x05
+        ETH = 0x06
+        ATM = 0x07
+        # 0x08-0x7F Reserved (future use)
+        # 0x80-0xFE Reserrved (vendor-specific)
 
-class Header:
+    class Protocol:
+        NONE = 0x0
+        V25TER = 0x01   # Common AT commands
+        # Many other protocols omitted.
+
+class Header(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = 0x00
+    bDescriptorSubtype = CDC.Subtype.HEADER
     fmt = "<BBB" + "H"
     bLength = struct.calcsize(fmt)
 
@@ -73,9 +100,9 @@ class Header:
                            self.bcdCDC)
 
 
-class CallManagement:
+class CallManagement(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = 0x01
+    bDescriptorSubtype = CDC.Subtype.CM
     fmt = "<BBB" + "BB"
     bLength = struct.calcsize(fmt)
 
@@ -99,9 +126,9 @@ class CallManagement:
                            self.bDataInterface)
 
 
-class AbstractControlManagement:
+class AbstractControlManagement(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = 0x02
+    bDescriptorSubtype = CDC.Subtype.ACM
     fmt = "<BBB" + "B"
     bLength = struct.calcsize(fmt)
 
@@ -123,9 +150,9 @@ class AbstractControlManagement:
 
 
 
-class DirectLineManagement:
+class DirectLineManagement(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = 0x03
+    bDescriptorSubtype = CDC.Subtype.DLM
     fmt = "<BBB" + "B"
     bLength = struct.calcsize(fmt)
 
@@ -146,9 +173,9 @@ class DirectLineManagement:
                            self.bmCapabilities)
 
 
-class Union:
+class Union(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = 0x06
+    bDescriptorSubtype = CDC.Subtype.UNION
     fixed_fmt = "<BBB" + "B"     # not including bSlaveInterface_list
     fixed_bLength = struct.calcsize(fixed_fmt)
 
