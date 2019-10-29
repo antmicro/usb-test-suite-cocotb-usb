@@ -80,22 +80,24 @@ class CDC(Descriptor):
 
 
 class Header(CDC):
-    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = CDC.Subtype.HEADER
-    fmt = "<BBB" + "H"
-    bLength = struct.calcsize(fmt)
+    FORMAT = "<BBB" + "H"
 
-    def __init__(self, *,
-                 description,
-                 bcdCDC):
-        self.description = description
+    def __init__(self,
+                 bcdCDC,
+                 bLength=struct.calcsize(FORMAT),
+                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_INTERFACE,
+                 bDescriptorSubtype=CDC.Subtype.HEADER
+                 ):
+        self.bLength = bLength
+        self.bDescriptorType = bDescriptorType
+        self.bDescriptorSubtype = bDescriptorSubtype
         self.bcdCDC = bcdCDC
 
     def notes(self):
         return [str(self)]
 
     def __bytes__(self):
-        return struct.pack(self.fmt,
+        return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
@@ -103,16 +105,18 @@ class Header(CDC):
 
 
 class CallManagement(CDC):
-    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = CDC.Subtype.CM
-    fmt = "<BBB" + "BB"
-    bLength = struct.calcsize(fmt)
+    FORMAT = "<BBB" + "BB"
 
-    def __init__(self, *,
-                 description,
+    def __init__(self,
                  bmCapabilities,
-                 bDataInterface):
-        self.description = description
+                 bDataInterface,
+                 bLength=struct.calcsize(FORMAT),
+                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_INTERFACE,
+                 bDescriptorSubtype=CDC.Subtype.CM
+                 ):
+        self.bLength = bLength
+        self.bDescriptorType = bDescriptorType
+        self.bDescriptorSubtype = bDescriptorSubtype
         self.bmCapabilities = bmCapabilities
         self.bDataInterface = bDataInterface
 
@@ -120,7 +124,7 @@ class CallManagement(CDC):
         return [str(self)]
 
     def __bytes__(self):
-        return struct.pack(self.fmt,
+        return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
@@ -129,22 +133,24 @@ class CallManagement(CDC):
 
 
 class AbstractControlManagement(CDC):
-    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = CDC.Subtype.ACM
-    fmt = "<BBB" + "B"
-    bLength = struct.calcsize(fmt)
+    FORMAT = "<BBB" + "B"
 
-    def __init__(self, *,
-                 description,
-                 bmCapabilities):
-        self.description = description
+    def __init__(self,
+                 bmCapabilities,
+                 bLength=struct.calcsize(FORMAT),
+                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_INTERFACE,
+                 bDescriptorSubtype=CDC.Subtype.ACM
+                 ):
+        self.bLength = bLength
+        self.bDescriptorType = bDescriptorType
+        self.bDescriptorSubtype = bDescriptorSubtype
         self.bmCapabilities = bmCapabilities
 
     def notes(self):
         return [str(self)]
 
     def __bytes__(self):
-        return struct.pack(self.fmt,
+        return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
@@ -152,22 +158,24 @@ class AbstractControlManagement(CDC):
 
 
 class DirectLineManagement(CDC):
-    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = CDC.Subtype.DLM
-    fmt = "<BBB" + "B"
-    bLength = struct.calcsize(fmt)
+    FORMAT = "<BBB" + "B"
 
-    def __init__(self, *,
-                 description,
-                 bmCapabilities):
-        self.description = description
+    def __init__(self,
+                 bmCapabilities,
+                 bLength=struct.calcsize(FORMAT),
+                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_INTERFACE,
+                 bDescriptorSubtype=CDC.Subtype.DLM
+                 ):
+        self.bLength = bLength
+        self.bDescriptorType = bDescriptorType
+        self.bDescriptorSubtype = bDescriptorSubtype
         self.bmCapabilities = bmCapabilities
 
     def notes(self):
         return [str(self)]
 
     def __bytes__(self):
-        return struct.pack(self.fmt,
+        return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
@@ -175,20 +183,21 @@ class DirectLineManagement(CDC):
 
 
 class Union(CDC):
-    bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
-    bDescriptorSubtype = CDC.Subtype.UNION
-    fixed_fmt = "<BBB" + "B"     # not including bSlaveInterface_list
-    fixed_bLength = struct.calcsize(fixed_fmt)
+    FIXED_FORMAT = "<BBB" + "B"     # not including bSlaveInterface_list
+    FIXED_BLENGTH = struct.calcsize(FIXED_FORMAT)
 
     @property
     def bLength(self):
-        return self.fixed_bLength + len(self.bSlaveInterface_list)
+        return self.FIXED_BLENGTH + len(self.bSlaveInterface_list)
 
-    def __init__(self, *,
-                 description,
+    def __init__(self,
                  bMasterInterface,
-                 bSlaveInterface_list):
-        self.description = description
+                 bSlaveInterface_list,
+                 bDescriptorType=Descriptor.Types.CLASS_SPECIFIC_INTERFACE,
+                 bDescriptorSubtype=CDC.Subtype.UNION
+                 ):
+        self.bDescriptorType = bDescriptorType
+        self.bDescriptorSubtype = bDescriptorSubtype
         self.bMasterInterface = bMasterInterface
         # bSlaveInterface_list is a list of one or more slave interfaces.
         self.bSlaveInterface_list = bSlaveInterface_list
@@ -197,7 +206,7 @@ class Union(CDC):
         return [str(self)]
 
     def __bytes__(self):
-        desc = struct.pack(self.fixed_fmt,
+        desc = struct.pack(self.FIXED_FORMAT,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
