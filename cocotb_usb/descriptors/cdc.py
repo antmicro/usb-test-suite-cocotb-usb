@@ -37,6 +37,8 @@ This PDF is a good reference:
 
 
 class CDC(Descriptor):
+    """Base class for storing common CDC definitions."""
+
     class Type:
         DEVICE = 0x02
         COMM = 0x02
@@ -81,6 +83,7 @@ class CDC(Descriptor):
 
 
 class Header(CDC):
+    """Descriptor representing start of CDC class-specific section."""
     FORMAT = "<BBB" + "H"
 
     def __init__(self,
@@ -106,6 +109,9 @@ class Header(CDC):
 
 
 class CallManagement(CDC):
+    """Describes call processing for the Communication interface.
+    See section 5.2.3.2  of CDC specification for details.
+    """
     FORMAT = "<BBB" + "BB"
 
     def __init__(self,
@@ -134,6 +140,9 @@ class CallManagement(CDC):
 
 
 class AbstractControlManagement(CDC):
+    """Describes commands supported by the ACM subclass.
+    See section 5.2.3.3  of CDC specification for details.
+    """
     FORMAT = "<BBB" + "B"
 
     def __init__(self,
@@ -159,6 +168,9 @@ class AbstractControlManagement(CDC):
 
 
 class DirectLineManagement(CDC):
+    """Describes commands supported by the DLCM subclass.
+    See section 5.2.3.4  of CDC specification for details.
+    """
     FORMAT = "<BBB" + "B"
 
     def __init__(self,
@@ -184,6 +196,10 @@ class DirectLineManagement(CDC):
 
 
 class Union(CDC):
+    """This descriptor enables grouping interfaces that can be treated as
+    a functional unit.
+    See section 5.2.3.8  of CDC specification for details.
+    """
     FIXED_FORMAT = "<BBB" + "B"     # not including bSlaveInterface_list
     FIXED_BLENGTH = struct.calcsize(FIXED_FORMAT)
 
@@ -216,6 +232,12 @@ class Union(CDC):
 
 
 def parseCDC(field):
+    """Parser function to read values of supported CDC descriptors for
+    the device from config file.
+
+    Args:
+        field:  JSON structure for this class to be parsed.
+    """
     bDescriptorSubtype = getVal(field["bDescriptorSubtype"], 0, 0xFF)
     if bDescriptorSubtype == CDC.Subtype.HEADER:
         return Header(
@@ -251,7 +273,8 @@ def parseCDC(field):
                  bmCapabilities=getVal(field["bmCapabilities"], 0, 0xFF)
                  )
     elif bDescriptorSubtype == CDC.Subtype.UNION:
-        bSlaveInterface_list = [getVal(i, 0, 0xFF) for i in field["bSlaveInterface"]]
+        bSlaveInterface_list = [getVal(i, 0, 0xFF)
+                                for i in field["bSlaveInterface"]]
         return Union(
                  bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
                  bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
