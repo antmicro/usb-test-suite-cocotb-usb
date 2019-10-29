@@ -23,6 +23,7 @@
 import struct
 
 from . import Descriptor
+from ..utils import getVal
 
 """
 CDC specific descriptors
@@ -212,3 +213,56 @@ class Union(CDC):
                            self.bDescriptorSubtype,
                            self.bMasterInterface)
         return desc + bytes(self.bSlaveInterface_list)
+
+
+def parseCDC(field):
+    bDescriptorSubtype = getVal(field["bDescriptorSubtype"], 0, 0xFF)
+    if bDescriptorSubtype == CDC.Subtype.HEADER:
+        return Header(
+                 bLength=getVal(field["bLength"], 0, 0xFF),
+                 bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
+                 bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
+                                           0, 0xFF),
+                 bcdCDC=getVal(field["bcdCDC"], 0, 0xFFFF)
+                 )
+    elif bDescriptorSubtype == CDC.Subtype.CM:
+        return CallManagement(
+                 bLength=getVal(field["bLength"], 0, 0xFF),
+                 bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
+                 bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
+                                           0, 0xFF),
+                 bmCapabilities=getVal(field["bmCapabilities"], 0, 0xFF),
+                 bDataInterface=getVal(field["bDataInterface"], 0, 0xFF)
+                 )
+    elif bDescriptorSubtype == CDC.Subtype.ACM:
+        return AbstractControlManagement(
+                 bLength=getVal(field["bLength"], 0, 0xFF),
+                 bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
+                 bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
+                                           0, 0xFF),
+                 bmCapabilities=getVal(field["bmCapabilities"], 0, 0xFF)
+                 )
+    elif bDescriptorSubtype == CDC.Subtype.DLM:
+        return DirectLineManagement(
+                 bLength=getVal(field["bLength"], 0, 0xFF),
+                 bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
+                 bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
+                                           0, 0xFF),
+                 bmCapabilities=getVal(field["bmCapabilities"], 0, 0xFF)
+                 )
+    elif bDescriptorSubtype == CDC.Subtype.UNION:
+        bSlaveInterface_list = [getVal(i, 0, 0xFF) for i in field["bSlaveInterface"]]
+        return Union(
+                 bDescriptorType=getVal(field["bDescriptorType"], 0, 0xFF),
+                 bDescriptorSubtype=getVal(field["bDescriptorSubtype"],
+                                           0, 0xFF),
+                 bMasterInterface=getVal(field["bMasterInterface"], 0, 0xFF),
+                 bSlaveInterface_list=bSlaveInterface_list
+                 )
+    else:
+        print("Unsupported CDC subclass")
+
+
+cdcParsers = {Descriptor.Types.CLASS_SPECIFIC_INTERFACE: parseCDC,
+              # CDC.Type.Data uses standard endpoints
+              }
