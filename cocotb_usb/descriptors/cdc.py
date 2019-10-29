@@ -34,6 +34,7 @@ This PDF is a good reference:
 * Author(s): Scott Shawcroft
 """
 
+
 class CDC(Descriptor):
     class Type:
         DEVICE = 0x02
@@ -76,6 +77,7 @@ class CDC(Descriptor):
         NONE = 0x0
         V25TER = 0x01   # Common AT commands
         # Many other protocols omitted.
+
 
 class Header(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
@@ -149,7 +151,6 @@ class AbstractControlManagement(CDC):
                            self.bmCapabilities)
 
 
-
 class DirectLineManagement(CDC):
     bDescriptorType = Descriptor.Types.CLASS_SPECIFIC_INTERFACE
     bDescriptorSubtype = CDC.Subtype.DLM
@@ -196,8 +197,9 @@ class Union(CDC):
         return [str(self)]
 
     def __bytes__(self):
-        return struct.pack(self.fixed_fmt,
+        desc = struct.pack(self.fixed_fmt,
                            self.bLength,
                            self.bDescriptorType,
                            self.bDescriptorSubtype,
-                           self.bMasterInterface) + bytes(self.bSlaveInterface_list)
+                           self.bMasterInterface)
+        return desc + bytes(self.bSlaveInterface_list)
