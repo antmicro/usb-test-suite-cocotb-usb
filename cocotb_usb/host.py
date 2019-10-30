@@ -24,6 +24,10 @@ class UsbTest:
             share clock signal. If set to False (default), you must provide
             clk48_device clock in test.
     """
+    # How long to keep trying when getting NAKs
+    RETRY_WAIT = 100  # us
+    MAX_RETRIES = 10
+
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
         self.dut = dut
@@ -61,6 +65,7 @@ class UsbTest:
         Args:
             time (int): Duration of reset in us.
         """
+        self.dut._log.debug("Resetting port for {} us".format(time))
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
         yield Timer(time, units="us")
@@ -142,25 +147,33 @@ class UsbTest:
     @cocotb.coroutine
     def host_send(self, data01, addr, epnum, data, expected=PID.ACK):
         """Send data out the virtual USB connection, including an OUT token."""
-        yield self.host_send_token_packet(PID.OUT, addr, epnum)
-        yield self.host_send_data_packet(data01, data)
-        yield self.host_expect_packet(handshake_packet(expected),
-                                      "Expected {} packet.".format(expected))
+        self.retries = self.MAX_RETRIES
+        while self.retries:
+            yield self.host_send_token_packet(PID.OUT, addr, epnum)
+            yield self.host_send_data_packet(data01, data)
+            yield self.host_expect_packet(handshake_packet(expected),
+                                          "Expected {} packet."
+                                          .format(expected))
 
     @cocotb.coroutine
     def host_setup(self, addr, epnum, data):
         """Send data out the virtual USB connection, including a SETUP
         token.
         """
-        yield self.host_send_token_packet(PID.SETUP, addr, epnum)
-        yield self.host_send_data_packet(PID.DATA0, data)
-        yield self.host_expect_ack()
+        self.retries = self.MAX_RETRIES
+        while self.retries:
+            yield self.host_send_token_packet(PID.SETUP, addr, epnum)
+            yield self.host_send_data_packet(PID.DATA0, data)
+            yield self.host_expect_ack()
 
     @cocotb.coroutine
     def host_recv(self, data01, addr, epnum, data):
         """Send data out the virtual USB connection, including an IN token."""
-        yield self.host_send_token_packet(PID.IN, addr, epnum)
-        yield self.host_expect_data_packet(data01, data)
+        self.retries = self.MAX_RETRIES
+        while self.retries:
+            yield Timer(self.RETRY_WAIT, "us")
+            yield self.host_send_token_packet(PID.IN, addr, epnum)
+            yield self.host_expect_data_packet(data01, data)
         yield self.host_send_ack()
 
     # Device->Host
@@ -234,7 +247,16 @@ class UsbTest:
         # Check the packet received matches
         expected = pp_packet(wrap_packet(packet))
         actual = pp_packet(result)
-        assertEqual(expected, actual, msg)
+        nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
+        if (actual == nak) and (expected != nak) and self.retries >= 2:
+            self.retries -= 1
+            self.dut._log.info("Got NAK, retrying "
+                               "({} attempts left)".format(self.retries))
+            yield Timer(self.RETRY_WAIT, 'us')
+            return
+        else:
+            self.retries = 0
+            assertEqual(expected, actual, msg)
 
     @cocotb.coroutine
     def host_expect_ack(self):
@@ -295,6 +317,7 @@ class UsbTest:
         datax = PID.DATA1
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
+            self.dut._log.debug("Expecting chunk {}".format(i))
             sent_data = 1
             self.dut._log.debug(
                 "Actual data we're expecting: {}".format(chunk))
@@ -304,6 +327,8 @@ class UsbTest:
 
             if datax == PID.DATA0:
                 datax = PID.DATA1
+            else:
+                datax = PID.DATA0
 
         if not sent_data:
             recv = cocotb.fork(self.host_recv(datax, addr, epnum, []))
@@ -357,7 +382,6 @@ class UsbTest:
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
-        yield Timer(30, "us")
 
         # Data stage
         if descriptor_data is not None:
@@ -408,7 +432,6 @@ class UsbTest:
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
 
-        yield Timer(30, "us")
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")
@@ -430,6 +453,7 @@ class UsbTest:
         Args:
             address (int): Value to be set.
         """
+        self.dut._log.debug("Setting device address")
         yield self.control_transfer_out(
             self.address,
             setAddressRequest(address),
@@ -444,6 +468,7 @@ class UsbTest:
         Args:
             response: Expected descriptor contents as list of bytes.
         """
+        self.dut._log.debug("Getting device descriptor")
         request = getDescriptorRequest(descriptor_type=Descriptor.Types.DEVICE,
                                        descriptor_index=0,
                                        lang_id=Descriptor.LangId.UNSPECIFIED,
@@ -458,6 +483,7 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
+        self.dut._log.debug("Getting config descriptor")
         request = getDescriptorRequest(
             descriptor_type=Descriptor.Types.CONFIGURATION,
             descriptor_index=0,
@@ -475,6 +501,7 @@ class UsbTest:
             idx (int): Descriptor index.
             response: Expected descriptor contents as list of bytes.
         """
+        self.dut._log.debug("Getting string descriptor")
         request = getDescriptorRequest(descriptor_type=Descriptor.Types.STRING,
                                        descriptor_index=idx,
                                        lang_id=lang_id,
@@ -490,6 +517,7 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
+        self.dut._log.debug("Getting device qualifier descriptor")
         request = getDescriptorRequest(
             descriptor_type=Descriptor.Types.DEVICE_QUALIFIER,
             descriptor_index=0,
@@ -507,6 +535,7 @@ class UsbTest:
         """
         request = setConfigurationRequest(idx)
 
+        self.dut._log.debug("Setting device configuration")
         yield self.control_transfer_out(
             self.address,
             request,
