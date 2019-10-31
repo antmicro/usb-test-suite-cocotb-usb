@@ -8,6 +8,8 @@ DFU_INTERFACE_PROTOCOL = 0x02
 
 
 class DfuAttributes:
+    """ Class for storing common DFU descriptor attributes."""
+
     # Bit 7..4: reserved
     class WillDetach:
         NO = 0 << 3
@@ -27,6 +29,8 @@ class DfuAttributes:
 
 
 class DfuFunctionalDescriptor(Descriptor):
+    """Class for storing functional descriptor of DFU."""
+
     TYPE = 0x21
     FORMAT = "<3B3H"
 
@@ -56,6 +60,7 @@ class DfuFunctionalDescriptor(Descriptor):
 
 
 class DfuRequest(USBDeviceRequest):
+    """Base class for DFU requests."""
     class Type:
         DFU_DETACH = 0
         DFU_DNLOAD = 1
@@ -67,6 +72,12 @@ class DfuRequest(USBDeviceRequest):
 
 
 def parseDfuFunctional(f):
+    """Parser function to read values of supported DFU descriptors for
+    the device from config file.
+
+    Args:
+        field:  JSON structure for this class to be parsed.
+    """
     return DfuFunctionalDescriptor(
         bLength=getVal(f["bLength"], 0, 0xFF),
         bDescriptorType=getVal(f["bDescriptorType"], 0, 0xFF),

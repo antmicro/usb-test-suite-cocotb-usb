@@ -14,7 +14,7 @@ else:
 
 
 class UnstableTrigger(GPITrigger):
-    """A trigger with uncertainty within defined range"""
+    """A trigger with uncertainty within defined range."""
     def __init__(self, time_ps, delta_neg, delta_pos, units=None):
         GPITrigger.__init__(self)
         self.sim_steps = get_sim_steps(time_ps, units)
@@ -22,7 +22,7 @@ class UnstableTrigger(GPITrigger):
         self.delta_pos = delta_pos
 
     def prime(self, callback):
-        """Register for a timed callback"""
+        """Register for a timed callback."""
         steps = self.sim_steps + randint(-self.delta_neg, self.delta_pos)
         if self.cbhdl == 0:
             self.cbhdl = simulator.register_timed_callback(
@@ -44,8 +44,8 @@ class UnstableClock(Clock):
         signal: The clock pin/signal to be driven.
         period (int): The clock period. Must convert to an even number of
             timesteps.
-        jitter_neg (int): Maximum negative jitter
-        jitter_pos (int): Maximum positive jitter
+        jitter_neg (int): Maximum negative jitter.
+        jitter_pos (int): Maximum positive jitter.
         units (str, optional): One of
             ``None``, ``'fs'``, ``'ps'``, ``'ns'``, ``'us'``, ``'ms'``,
             ``'sec'``.
@@ -60,7 +60,7 @@ class UnstableClock(Clock):
 
     @cocotb.coroutine
     def start(self, cycles=None, start_high=True):
-        """Clocking coroutine.  Start driving your clock by forking a
+        """Clocking coroutine. Start driving your clock by forking a
         call to this.
 
         Args:

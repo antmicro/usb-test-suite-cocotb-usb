@@ -7,7 +7,7 @@ TARGET = environ.get('TARGET')
 def get_harness(dut, **kwargs):
     '''
     Helper function to assign test harness object.
-    Object is chosen using TARGET environment variable.
+    Object is chosen using ``TARGET`` environment variable.
     '''
     if TARGET == 'valentyusb':
         dut_csrs = environ['DUT_CSRS']  # We want a KeyError if this is unset

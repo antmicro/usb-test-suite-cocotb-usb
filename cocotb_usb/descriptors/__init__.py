@@ -2,7 +2,7 @@ from struct import pack
 
 
 class Descriptor:
-    """Base class for storing common descriptor elements"""
+    """Base class for storing common descriptor elements."""
     class LangId:
         UNSPECIFIED = 0x0000
         ENG = 0x0409
@@ -26,12 +26,12 @@ class Descriptor:
         CLASS_SPECIFIC_ENDPOINT = 0x25
 
     def get(self):
-        """Return descriptor contents as a list of bytes"""
+        """Return descriptor contents as a list of bytes."""
         return list(bytes(self))
 
 
 class DeviceDescriptor(Descriptor):
-    """Class representing USB device descriptor"""
+    """Class representing USB device descriptor."""
 
     FORMAT = "<BBH4B3H4B"
 
@@ -84,7 +84,7 @@ class DeviceDescriptor(Descriptor):
 
 
 class EndpointDescriptor(Descriptor):
-    """Class representing standard USB endpoint descriptor"""
+    """Class representing standard USB endpoint descriptor."""
 
     FORMAT = "<4BHB"
 
@@ -135,7 +135,7 @@ class EndpointDescriptor(Descriptor):
 
 
 class InterfaceDescriptor(Descriptor):
-    """Class representing standard USB interface descriptor"""
+    """Class representing standard USB interface descriptor."""
 
     FORMAT = "<BB7B"
 
@@ -177,7 +177,8 @@ class InterfaceDescriptor(Descriptor):
 
 
 class ConfigDescriptor(Descriptor):
-    """Class representing standard USB configuration descriptor
+    """Class representing standard USB configuration descriptor.
+
     Can also represent OTHER_SPEED_CONFIGURATION descriptor, as they have
     identical contents.
     """
@@ -227,6 +228,7 @@ class ConfigDescriptor(Descriptor):
 
 class StringDescriptorZero(Descriptor):
     """Class representing USB string descriptor with index 0.
+
      This one is different than other string descriptors in that it contains
      an array of supported LanguageIds instead of an actual string.
     """
@@ -250,7 +252,7 @@ class StringDescriptorZero(Descriptor):
 
 
 class StringDescriptor(Descriptor):
-    """Class representing standard USB string descriptor"""
+    """Class representing standard USB string descriptor."""
     def __init__(self,
                  bString,
                  bLength=None,
@@ -271,7 +273,7 @@ class StringDescriptor(Descriptor):
 
 
 class DeviceQualifierDescriptor(Descriptor):
-    """Class representing standard USB device qualifier descriptor"""
+    """Class representing standard USB device qualifier descriptor."""
 
     FORMAT = "<BBH6B"
 
@@ -322,7 +324,7 @@ class FeatureSelector:
 
 
 class USBDeviceRequest():
-    """Class grouping common USB request definitions"""
+    """Class grouping common USB request definitions."""
 
     FORMAT = "<BB3H"
 
@@ -371,7 +373,7 @@ class USBDeviceRequest():
         self.wLength = wLength
 
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
-        """Create a USB request with provided values"""
+        """Create a USB request with provided values."""
         return [
             bmRequestType,
             bRequest,
@@ -393,7 +395,7 @@ class USBDeviceRequest():
 
 
 def setAddressRequest(address):
-    """Create a standard SET_ADDRESS USB request
+    """Create a standard SET_ADDRESS USB request.
 
     Args:
         address (int): Address to be set. Should be below 128.
@@ -409,11 +411,12 @@ def setAddressRequest(address):
 
 
 def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
-    """Create a standard GET_DESCRIPTOR USB request
+    """Create a standard GET_DESCRIPTOR USB request.
 
     Args:
-        descriptor_type: Type of the descriptor as per USB specification.
-        descriptor_index: Index of descriptor to be read.
+        descriptor_type (int): Type of the descriptor as per
+            USB specification.
+        descriptor_index (int): Index of descriptor to be read.
         lang_id (int): LangId of descriptor to be read or 0 if unspecified.
         length (int): Number of bytes requested.
     """
@@ -427,7 +430,7 @@ def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
 
 
 def setConfigurationRequest(configuration):
-    """Create a standard SET_CONFIGURATION USB request
+    """Create a standard SET_CONFIGURATION USB request.
 
     Args:
         configuration (int): Configuration value to be set.
@@ -445,6 +448,16 @@ def setConfigurationRequest(configuration):
 
 
 def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
+    """Create a standard SET_FEATURE USB request.
+
+    Args:
+        feature_selector (int): Feature selector as defined
+            in USB specification.
+        recipient (int): One of Device (0), Interface (1) or Endpoint (2).
+        target (int): Number of interface or endpoint.
+        test_selector (int): Test mode selector, valid only for TEST_MODE
+            feature selector.
+    """
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE
                                   | USBDeviceRequest.Type.STANDARD | recipient,
                                   bRequest=USBDeviceRequest.Code.SET_FEATURE,

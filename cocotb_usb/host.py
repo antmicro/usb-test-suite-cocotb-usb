@@ -19,13 +19,13 @@ from wishbone import WishboneMaster
 
 class UsbTest:
     """
-    Base class for communicating with a USB test bench
+    Base class for communicating with a USB test bench.
 
     Args:
         dut : Object under test as passed by cocotb.
         decouple_clocks (bool, optional): Indicates whether host and device
-        share clock signal. If set to False, you must provide clk48_device
-        clock in test.
+            share clock signal. If set to False (default), you must provide
+            clk48_device clock in test.
     """
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
@@ -46,7 +46,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def reset(self):
-        """Reset DUT"""
+        """Reset DUT."""
         self.dut.reset = 1
         self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
@@ -58,10 +58,11 @@ class UsbTest:
 
     @cocotb.coroutine
     def port_reset(self, time=50e3):
-        """Send USB port reset - SE0 condition for at least 50 ms (on root port)
+        """Send USB port reset - SE0 condition for at least 50 ms
+        (on root port).
 
         Args:
-            time (int): Duration of reset in us
+            time (int): Duration of reset in us.
         """
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
@@ -69,7 +70,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def connect(self):
-        """Simulate FS connect to DUT"""
+        """Simulate FS connect to DUT  - DP pulled high."""
         # FS connect - DP pulled high
         self.dut.usb_d_p = 1
         self.dut.usb_d_n = 0
@@ -77,7 +78,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def disconnect(self):
-        """Simulate device disconnect, both lines pulled low"""
+        """Simulate device disconnect, both lines pulled low."""
         # Detached - pulldowns on host side
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
@@ -143,7 +144,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_send(self, data01, addr, epnum, data, expected=PID.ACK):
-        """Send data out the virtual USB connection, including an OUT token"""
+        """Send data out the virtual USB connection, including an OUT token."""
         yield self.host_send_token_packet(PID.OUT, addr, epnum)
         yield self.host_send_data_packet(data01, data)
         yield self.host_expect_packet(handshake_packet(expected),
@@ -151,14 +152,16 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_setup(self, addr, epnum, data):
-        """Send data out the virtual USB connection, including a SETUP token"""
+        """Send data out the virtual USB connection, including a SETUP
+        token.
+        """
         yield self.host_send_token_packet(PID.SETUP, addr, epnum)
         yield self.host_send_data_packet(PID.DATA0, data)
         yield self.host_expect_ack()
 
     @cocotb.coroutine
     def host_recv(self, data01, addr, epnum, data):
-        """Send data out the virtual USB connection, including an IN token"""
+        """Send data out the virtual USB connection, including an IN token."""
         yield self.host_send_token_packet(PID.IN, addr, epnum)
         yield self.host_expect_data_packet(data01, data)
         yield self.host_send_ack()
@@ -166,7 +169,12 @@ class UsbTest:
     # Device->Host
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
-        """Expect to receive the following USB packet."""
+        """Expect to receive the following USB packet.
+
+        Args:
+            packet: Values to be received as list of bytes.
+            msg (str, optional): Message to be printed on mismatch.
+        """
         def current():
             values = (self.dut.usb_d_p, self.dut.usb_d_n)
 
@@ -233,21 +241,30 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_expect_ack(self):
+        """Expect an ACK packet."""
         yield self.host_expect_packet(handshake_packet(PID.ACK),
                                       "Expected ACK packet.")
 
     @cocotb.coroutine
     def host_expect_nak(self):
+        """Expect a NAK packet."""
         yield self.host_expect_packet(handshake_packet(PID.NAK),
                                       "Expected NAK packet.")
 
     @cocotb.coroutine
     def host_expect_stall(self):
+        """Expect a STALL packet."""
         yield self.host_expect_packet(handshake_packet(PID.STALL),
                                       "Expected STALL packet.")
 
     @cocotb.coroutine
     def host_expect_data_packet(self, pid, data):
+        """Expect to receive a data packet.
+
+        Args:
+            pid: Either ``PID.DATA0`` or ``PID.DATA1``.
+            data: Expected values as list of bytes.
+        """
         assert pid in (PID.DATA0, PID.DATA1), pid
         yield self.host_expect_packet(
             data_packet(pid, data),
@@ -311,6 +328,13 @@ class UsbTest:
 
     @cocotb.coroutine
     def control_transfer_out(self, addr, setup_data, descriptor_data=None):
+        """Perform an OUT control transfer.
+
+        Args:
+            addr (int): Device address.
+            setup_data: Request to be sent, as list of bytes.
+            descriptor_data (optional): Data to be sent, as list of bytes.
+        """
         epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
         epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
 
@@ -353,6 +377,14 @@ class UsbTest:
 
     @cocotb.coroutine
     def control_transfer_in(self, addr, setup_data, descriptor_data=None):
+        """Perform an IN control transfer.
+
+        Args:
+            addr (int): Device address.
+            setup_data: Request to be sent, as list of bytes.
+            descriptor_data (optional): Data expected to be received, as list
+                of bytes.
+        """
         epaddr_out = EndpointType.epaddr(0, EndpointType.OUT)
         epaddr_in = EndpointType.epaddr(0, EndpointType.IN)
 
@@ -396,7 +428,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def set_device_address(self, address):
-        """Set USB device address
+        """Set USB device address.
 
         Args:
             address (int): Value to be set.
@@ -471,7 +503,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def set_configuration(self, idx):
-        """Send a SET_CONFIGURATION standard device request to DUT
+        """Send a SET_CONFIGURATION standard device request to DUT.
 
         Args:
             idx (int): Configuration number to be set.
@@ -488,11 +520,11 @@ class UsbTest:
 class UsbTestValenty(UsbTest):
     """Class for testing ValentyUSB IP core.
     Includes functions to communicate and generate responses without a CPU,
-    making use of a Wishbone bridge
+    making use of a Wishbone bridge.
 
     Args:
         dut : Object under test as passed by cocotb.
-        csr_file (str): CSV file containing CSR register addresses,
+        csr_file (str): Path to a CSV file containing CSR register addresses,
             generated by Litex.
         decouple_clocks (bool, optional): Indicates whether host and device
             share clock signal. If set to False, you must provide clk48_device
