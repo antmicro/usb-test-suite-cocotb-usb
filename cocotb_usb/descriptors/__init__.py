@@ -66,6 +66,24 @@ class DeviceDescriptor(Descriptor):
         self.bNumConfigurations = bNumConfigurations
 
     def __bytes__(self):
+        """
+        >>> d = DeviceDescriptor(
+        ... bLength=0x0A,
+        ... bcdUSB=0x0100,
+        ... bDeviceClass=0xFF,
+        ... bDeviceSubClass=0x00,
+        ... bDeviceProtocol=0xAB,
+        ... bMaxPacketSize0=64,
+        ... idVendor=0x1234,
+        ... idProduct=0x5678,
+        ... bcdDevice=0x0502,
+        ... iManufacturer=0x01,
+        ... iProduct=0x02,
+        ... iSerialNumber=0x03,
+        ... bNumConfigurations=1)
+        >>> bytes(d)
+        b'\\n\\x01\\x00\\x01\\xff\\x00\\xab@4\\x12xV\\x02\\x05\\x01\\x02\\x03\\x01'
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -125,6 +143,18 @@ class EndpointDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> bytes(e)
+        b'\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> e.get()
+        [7, 5, 130, 1, 0, 1, 1]
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -162,6 +192,33 @@ class InterfaceDescriptor(Descriptor):
         self.subdescriptors = subdescriptors
 
     def __bytes__(self):
+        """
+        >>> i = InterfaceDescriptor(
+        ... bLength=9,
+        ... bInterfaceNumber=0,
+        ... bAlternateSetting=0,
+        ... bNumEndpoints=0,
+        ... bInterfaceClass=0xFF,
+        ... bInterfaceSubclass=0x01,
+        ... bInterfaceProtocol=0xFF,
+        ... iInterface=0)
+        >>> bytes(i)
+        b'\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00'
+        >>> i.get()
+        [9, 4, 0, 0, 0, 255, 1, 255, 0]
+
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> i.subdescriptors = [e]
+        >>> bytes(i)
+        b'\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> i.get()
+        [9, 4, 0, 0, 0, 255, 1, 255, 0, 7, 5, 130, 1, 0, 1, 1]
+        """
         desc = pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -213,6 +270,42 @@ class ConfigDescriptor(Descriptor):
         self.interfaces = interfaces
 
     def __bytes__(self):
+        """
+        >>> c = ConfigDescriptor(
+        ... bLength=9,
+        ... wTotalLength=0x53,
+        ... bNumInterfaces=1,
+        ... bConfigurationValue=1,
+        ... iConfiguration=0,
+        ... bmAttributes=0x40,
+        ... bMaxPower=0)
+        >>> bytes(c)
+        b'\\t\\x02S\\x00\\x01\\x01\\x00@\\x00'
+        >>> c.get()
+        [9, 2, 83, 0, 1, 1, 0, 64, 0]
+
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> i = InterfaceDescriptor(
+        ... bLength=9,
+        ... bInterfaceNumber=0,
+        ... bAlternateSetting=0,
+        ... bNumEndpoints=0,
+        ... bInterfaceClass=0xFF,
+        ... bInterfaceSubclass=0x01,
+        ... bInterfaceProtocol=0xFF,
+        ... iInterface=0,
+        ... subdescriptors=[e])
+        >>> c.interfaces=[i]
+        >>> bytes(c)
+        b'\\t\\x02S\\x00\\x01\\x01\\x00@\\x00\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> c.get()
+        [9, 2, 83, 0, 1, 1, 0, 64, 0, 9, 4, 0, 0, 0, 255, 1, 255, 0, 7, 5, 130, 1, 0, 1, 1]
+        """
         desc = pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -244,6 +337,19 @@ class StringDescriptorZero(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> s0 = StringDescriptorZero(wLangIdList=[0x0409])
+        >>> bytes(s0)
+        b'\\x04\\x03\\t\\x04'
+        >>> s0.get()
+        [4, 3, 9, 4]
+
+        >>> s0 = StringDescriptorZero(wLangIdList=[0x0409, 0x0804, 0x0439, 0x040a])
+        >>> bytes(s0)
+        b'\\n\\x03\\t\\x04\\x04\\x089\\x04\\n\\x04'
+        >>> s0.get()
+        [10, 3, 9, 4, 4, 8, 57, 4, 10, 4]
+        """ # noqa
         desc = pack("<BB{}H".format(len(self.wLangId)),
                     self.bLength,
                     self.bDescriptorType,
@@ -265,6 +371,13 @@ class StringDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> s1 = StringDescriptor("Product name")
+        >>> bytes(s1)
+        b'\\x1a\\x03P\\x00r\\x00o\\x00d\\x00u\\x00c\\x00t\\x00 \\x00n\\x00a\\x00m\\x00e\\x00'
+        >>> s1.get()
+        [26, 3, 80, 0, 114, 0, 111, 0, 100, 0, 117, 0, 99, 0, 116, 0, 32, 0, 110, 0, 97, 0, 109, 0, 101, 0]
+        """ # noqa
         header = pack("<BB",
                       self.bLength,
                       self.bDescriptorType)
@@ -296,6 +409,19 @@ class DeviceQualifierDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> d = DeviceQualifierDescriptor(
+        ... bcdUSB=0x0100,
+        ... bDeviceClass=0xFF,
+        ... bDeviceSubClass=0x00,
+        ... bDeviceProtocol=0xEE,
+        ... bMaxPacketSize0=64,
+        ... bNumConfigurations=1)
+        >>> bytes(d)
+        b'\\n\\x06\\x00\\x01\\xff\\x00\\xee@\\x01\\x00'
+        >>> d.get()
+        [10, 6, 0, 1, 255, 0, 238, 64, 1, 0]
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -465,3 +591,8 @@ def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
                                   | feature_selector,
                                   wIndex=test_selector << 8 | target,
                                   wLength=0)
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
