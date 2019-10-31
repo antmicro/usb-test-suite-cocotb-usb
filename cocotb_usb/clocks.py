@@ -33,6 +33,11 @@ class UnstableTrigger(GPITrigger):
         GPITrigger.prime(self, callback)
 
     def __str__(self):
+        """
+        >>> u = UnstableTrigger(100,5,3)
+        >>> print(u)
+        UnstableTrigger(0.10ps)
+        """
         return self.__class__.__name__ + "(%1.2fps)" % get_time_from_sim_steps(
             self.sim_steps, units='ps')
 
@@ -108,4 +113,14 @@ class UnstableClock(Clock):
                 yield t
 
     def __str__(self):
+        """
+        >>> c = UnstableClock(None,100,5,3)
+        >>> print(c)
+        UnstableClock(10000000.0 MHz)
+        """
         return self.__class__.__name__ + "(%3.1f MHz)" % self.frequency
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
