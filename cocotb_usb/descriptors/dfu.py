@@ -1,6 +1,6 @@
 from struct import pack
-from . import Descriptor, USBDeviceRequest
-from ..utils import getVal
+from cocotb_usb.descriptors import Descriptor, USBDeviceRequest
+from cocotb_usb.utils import getVal
 
 DFU_CLASS_CODE = 0xFE       # Application specific class code
 DFU_SUBCLASS_CODE = 0x01    # Device Firmware Update code
@@ -50,6 +50,17 @@ class DfuFunctionalDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> d = DfuFunctionalDescriptor(
+        ... bmAttributes=0x0d,
+        ... wDetachTimeout=10000,
+        ... wTransferSize=1024,
+        ... bcdDFUVersion=0x0101)
+        >>> bytes(d)
+        b"\\t!\\r\\x10'\\x00\\x04\\x01\\x01"
+        >>> d.get()
+        [9, 33, 13, 16, 39, 0, 4, 1, 1]
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -77,6 +88,21 @@ def parseDfuFunctional(f):
 
     Args:
         field:  JSON structure for this class to be parsed.
+
+    .. doctest:
+
+        >>> f = {
+        ... "name":     "DFU Functional",
+        ... "bLength":                 9,
+        ... "bDescriptorType":    "0x21",
+        ... "bmAttributes":       "0x0D",
+        ... "wDetachTimeout":      10000,
+        ... "wTransferSize":        1024,
+        ... "bcdDFUVersion":    "0x0101"
+        ... }
+        >>> d = parseDfuFunctional(f)
+        >>> d.get()
+        [9, 33, 13, 16, 39, 0, 4, 1, 1]
     """
     return DfuFunctionalDescriptor(
         bLength=getVal(f["bLength"], 0, 0xFF),
@@ -89,3 +115,7 @@ def parseDfuFunctional(f):
 
 
 dfuParsers = {DfuFunctionalDescriptor.TYPE: parseDfuFunctional}
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()

@@ -305,7 +305,7 @@ class ConfigDescriptor(Descriptor):
         b'\\t\\x02S\\x00\\x01\\x01\\x00@\\x00\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
         >>> c.get()
         [9, 2, 83, 0, 1, 1, 0, 64, 0, 9, 4, 0, 0, 0, 255, 1, 255, 0, 7, 5, 130, 1, 0, 1, 1]
-        """
+        """ # noqa
         desc = pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -499,7 +499,18 @@ class USBDeviceRequest():
         self.wLength = wLength
 
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
-        """Create a USB request with provided values."""
+        """Create a USB request with provided values.
+
+        .. doctest::
+
+            >>> USBDeviceRequest.build(
+            ... bmRequestType=0x00,
+            ... bRequest=0x05,
+            ... wValue=0x02,
+            ... wIndex=0x00,
+            ... wLength=0x00)
+            [0, 5, 2, 0, 0, 0, 0, 0]
+        """
         return [
             bmRequestType,
             bRequest,
@@ -512,6 +523,16 @@ class USBDeviceRequest():
         ]
 
     def __bytes__(self):
+        """
+        >>> r = USBDeviceRequest(
+        ... bmRequestType=0x00,
+        ... bRequest=0x05,
+        ... wValue=0x02,
+        ... wIndex=0x00,
+        ... wLength=0x00)
+        >>> bytes(r)
+        b'\\x00\\x05\\x02\\x00\\x00\\x00\\x00\\x00'
+        """
         return pack(self.FORMAT,
                     self.bmRequestType,
                     self.bRequest,
@@ -525,6 +546,11 @@ def setAddressRequest(address):
 
     Args:
         address (int): Address to be set. Should be below 128.
+
+    .. doctest::
+
+        >>> setAddressRequest(0x30)
+        [0, 5, 48, 0, 0, 0, 0, 0]
     """
     assert address <= 127
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE
@@ -545,6 +571,16 @@ def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
         descriptor_index (int): Index of descriptor to be read.
         lang_id (int): LangId of descriptor to be read or 0 if unspecified.
         length (int): Number of bytes requested.
+
+    .. doctest::
+
+        >>> getDescriptorRequest(
+        ... descriptor_type=2,
+        ... descriptor_index=1,
+        ... lang_id=0,
+        ... length=9
+        ... )
+        [128, 6, 1, 2, 0, 0, 9, 0]
     """
     return USBDeviceRequest.build(
         USBDeviceRequest.Type.DEVICE_TO_HOST | USBDeviceRequest.Type.STANDARD
@@ -561,6 +597,11 @@ def setConfigurationRequest(configuration):
     Args:
         configuration (int): Configuration value to be set.
             Should be below 256.
+
+    .. doctest::
+
+         >>> setConfigurationRequest(3)
+         [0, 9, 3, 0, 0, 0, 0, 0]
     """
     # Upper byte of wValue byte is reserved here
     assert configuration <= 255
@@ -583,6 +624,13 @@ def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
         target (int): Number of interface or endpoint.
         test_selector (int): Test mode selector, valid only for TEST_MODE
             feature selector.
+
+    .. doctest::
+
+        >>> setFeatureRequest(
+        ... feature_selector=0,
+        ... recipient=0)
+        [0, 3, 0, 0, 0, 0, 0, 0]
     """
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE
                                   | USBDeviceRequest.Type.STANDARD | recipient,
