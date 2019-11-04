@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from .pid import PID
-from .. import CrcMoose3 as crc
+from cocotb_usb.usb.pid import PID
+from cocotb_usb import CrcMoose3 as crc
 
 
 def b(s):
@@ -71,9 +71,9 @@ def crc5_token(addr, ep):
 def crc5_sof(v):
     """
     >>> hex(crc5_sof(1429))
-    '0x1'
+    '0x10'
     >>> hex(crc5_sof(1013))
-    '0x5'
+    '0x14'
     """
     reg = crc.CrcRegister(crc.CRC5_USB)
     reg.takeWord(v, 11)
@@ -327,7 +327,7 @@ def diff(value):
 def undiff(usbp, usbn):
     """Convert P/N diff pair bits into J/K encoding.
 
-    >>> from usbcore.utils.pprint import pp_packet
+    >>> from cocotb_usb.usb.pp_packet import pp_packet
     >>> undiff(
     ...   #EJK_
     ...   '1100', # p
@@ -391,9 +391,9 @@ def undiff(usbp, usbn):
     KKKK  8 Frame #
     ----
     JJJJ  9 Frame #
-    JJJJ 10 Frame #
-    KKKK 11 Frame #
-    JJJJ 1 CRC5
+    KKKK 10 Frame #
+    JJJJ 11 Frame #
+    KKKK 1 CRC5
     KKKK 2 CRC5
     JJJJ 3 CRC5
     KKKK 4 CRC5
