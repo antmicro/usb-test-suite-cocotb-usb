@@ -1,4 +1,5 @@
 # cocotb_usb
+[![Build Status](https://travis-ci.com/antmicro/usb-test-suite-cocotb-usb.svg?branch=master)](https://travis-ci.com/antmicro/usb-test-suite-cocotb-usb)
 Python package for USB test suite based on cocotb.
 
 ## Installation
