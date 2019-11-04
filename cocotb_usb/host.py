@@ -4,11 +4,11 @@ from cocotb.triggers import RisingEdge, Timer, ClockCycles
 from cocotb.result import TestFailure, ReturnValue
 
 from cocotb_usb.descriptors import (Descriptor, getDescriptorRequest,
-                          setAddressRequest, setConfigurationRequest)
+                                    setAddressRequest, setConfigurationRequest)
 from cocotb_usb.usb.pid import PID
 from cocotb_usb.usb.endpoint import EndpointType, EndpointResponse
-from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet, sof_packet,
-                         handshake_packet, crc16)
+from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
+                                   sof_packet, handshake_packet, crc16)
 from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.utils import grouper_tofit, parse_csr, assertEqual
