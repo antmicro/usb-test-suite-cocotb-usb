@@ -7,10 +7,16 @@ python:
 cache:
   pip: true
 
-install:
-  - pip install flake8 pytest cocotb
-  - pip install -e .
-
-script:
-  - flake8 .
-  - pytest --doctest-modules .
+jobs:
+  include:
+    - name: "Python PEP8 checks"
+      install:
+        - pip install flake8
+      script:
+        - flake8 .
+    - name: "Doctests"
+      install:
+        - pip install pytest cocotb
+        - pip install -e .
+      script:
+        - pytest --doctest-modules .
