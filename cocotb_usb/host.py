@@ -3,18 +3,15 @@ from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, ClockCycles
 from cocotb.result import TestFailure, ReturnValue
 
-from .descriptors import (Descriptor, getDescriptorRequest,
-                          setAddressRequest, setConfigurationRequest)
-from .usb.pid import PID
-from .usb.endpoint import EndpointType, EndpointResponse
-from .usb.packet import (wrap_packet, token_packet, data_packet, sof_packet,
-                         handshake_packet, crc16)
-from .usb.pprint import pp_packet
+from cocotb_usb.descriptors import (Descriptor, getDescriptorRequest,
+                                    setAddressRequest, setConfigurationRequest)
+from cocotb_usb.usb.pid import PID
+from cocotb_usb.usb.endpoint import EndpointType, EndpointResponse
+from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
+                                   sof_packet, handshake_packet, crc16)
+from cocotb_usb.usb.pp_packet import pp_packet
 
-from .utils import grouper_tofit, parse_csr, assertEqual
-
-# Litex imports
-from wishbone import WishboneMaster
+from cocotb_usb.utils import grouper_tofit, parse_csr, assertEqual
 
 
 class UsbTest:
@@ -531,10 +528,13 @@ class UsbTestValenty(UsbTest):
             clock in test.
     """
     def __init__(self, dut, csr_file, **kwargs):
-        super().__init__(dut, **kwargs)
+        # Litex imports
+        from wishbone import WishboneMaster
+
+        self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
         self.csrs = dict()
         self.csrs = parse_csr(csr_file)
-        self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
+        super().__init__(dut, **kwargs)
 
     @cocotb.coroutine
     def reset(self):

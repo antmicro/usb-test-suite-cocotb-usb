@@ -1,5 +1,5 @@
 from os import environ
-from .host import UsbTest, UsbTestValenty
+from cocotb_usb.host import UsbTest, UsbTestValenty
 
 TARGET = environ.get('TARGET')
 

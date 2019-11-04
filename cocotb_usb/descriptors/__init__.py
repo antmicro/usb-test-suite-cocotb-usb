@@ -66,6 +66,24 @@ class DeviceDescriptor(Descriptor):
         self.bNumConfigurations = bNumConfigurations
 
     def __bytes__(self):
+        """
+        >>> d = DeviceDescriptor(
+        ... bLength=0x0A,
+        ... bcdUSB=0x0100,
+        ... bDeviceClass=0xFF,
+        ... bDeviceSubClass=0x00,
+        ... bDeviceProtocol=0xAB,
+        ... bMaxPacketSize0=64,
+        ... idVendor=0x1234,
+        ... idProduct=0x5678,
+        ... bcdDevice=0x0502,
+        ... iManufacturer=0x01,
+        ... iProduct=0x02,
+        ... iSerialNumber=0x03,
+        ... bNumConfigurations=1)
+        >>> bytes(d)
+        b'\\n\\x01\\x00\\x01\\xff\\x00\\xab@4\\x12xV\\x02\\x05\\x01\\x02\\x03\\x01'
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -125,6 +143,18 @@ class EndpointDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> bytes(e)
+        b'\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> e.get()
+        [7, 5, 130, 1, 0, 1, 1]
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -162,6 +192,33 @@ class InterfaceDescriptor(Descriptor):
         self.subdescriptors = subdescriptors
 
     def __bytes__(self):
+        """
+        >>> i = InterfaceDescriptor(
+        ... bLength=9,
+        ... bInterfaceNumber=0,
+        ... bAlternateSetting=0,
+        ... bNumEndpoints=0,
+        ... bInterfaceClass=0xFF,
+        ... bInterfaceSubclass=0x01,
+        ... bInterfaceProtocol=0xFF,
+        ... iInterface=0)
+        >>> bytes(i)
+        b'\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00'
+        >>> i.get()
+        [9, 4, 0, 0, 0, 255, 1, 255, 0]
+
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> i.subdescriptors = [e]
+        >>> bytes(i)
+        b'\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> i.get()
+        [9, 4, 0, 0, 0, 255, 1, 255, 0, 7, 5, 130, 1, 0, 1, 1]
+        """
         desc = pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -213,6 +270,42 @@ class ConfigDescriptor(Descriptor):
         self.interfaces = interfaces
 
     def __bytes__(self):
+        """
+        >>> c = ConfigDescriptor(
+        ... bLength=9,
+        ... wTotalLength=0x53,
+        ... bNumInterfaces=1,
+        ... bConfigurationValue=1,
+        ... iConfiguration=0,
+        ... bmAttributes=0x40,
+        ... bMaxPower=0)
+        >>> bytes(c)
+        b'\\t\\x02S\\x00\\x01\\x01\\x00@\\x00'
+        >>> c.get()
+        [9, 2, 83, 0, 1, 1, 0, 64, 0]
+
+        >>> e = EndpointDescriptor(
+        ... bLength=7,
+        ... bEndpointAddress=0x82,
+        ... bmAttributes=0x01,
+        ... wMaxPacketSize=0x0100,
+        ... bInterval=0x01)
+        >>> i = InterfaceDescriptor(
+        ... bLength=9,
+        ... bInterfaceNumber=0,
+        ... bAlternateSetting=0,
+        ... bNumEndpoints=0,
+        ... bInterfaceClass=0xFF,
+        ... bInterfaceSubclass=0x01,
+        ... bInterfaceProtocol=0xFF,
+        ... iInterface=0,
+        ... subdescriptors=[e])
+        >>> c.interfaces=[i]
+        >>> bytes(c)
+        b'\\t\\x02S\\x00\\x01\\x01\\x00@\\x00\\t\\x04\\x00\\x00\\x00\\xff\\x01\\xff\\x00\\x07\\x05\\x82\\x01\\x00\\x01\\x01'
+        >>> c.get()
+        [9, 2, 83, 0, 1, 1, 0, 64, 0, 9, 4, 0, 0, 0, 255, 1, 255, 0, 7, 5, 130, 1, 0, 1, 1]
+        """ # noqa
         desc = pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -244,6 +337,19 @@ class StringDescriptorZero(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> s0 = StringDescriptorZero(wLangIdList=[0x0409])
+        >>> bytes(s0)
+        b'\\x04\\x03\\t\\x04'
+        >>> s0.get()
+        [4, 3, 9, 4]
+
+        >>> s0 = StringDescriptorZero(wLangIdList=[0x0409, 0x0804, 0x0439, 0x040a])
+        >>> bytes(s0)
+        b'\\n\\x03\\t\\x04\\x04\\x089\\x04\\n\\x04'
+        >>> s0.get()
+        [10, 3, 9, 4, 4, 8, 57, 4, 10, 4]
+        """ # noqa
         desc = pack("<BB{}H".format(len(self.wLangId)),
                     self.bLength,
                     self.bDescriptorType,
@@ -265,6 +371,13 @@ class StringDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> s1 = StringDescriptor("Product name")
+        >>> bytes(s1)
+        b'\\x1a\\x03P\\x00r\\x00o\\x00d\\x00u\\x00c\\x00t\\x00 \\x00n\\x00a\\x00m\\x00e\\x00'
+        >>> s1.get()
+        [26, 3, 80, 0, 114, 0, 111, 0, 100, 0, 117, 0, 99, 0, 116, 0, 32, 0, 110, 0, 97, 0, 109, 0, 101, 0]
+        """ # noqa
         header = pack("<BB",
                       self.bLength,
                       self.bDescriptorType)
@@ -296,6 +409,19 @@ class DeviceQualifierDescriptor(Descriptor):
         self.bDescriptorType = bDescriptorType
 
     def __bytes__(self):
+        """
+        >>> d = DeviceQualifierDescriptor(
+        ... bcdUSB=0x0100,
+        ... bDeviceClass=0xFF,
+        ... bDeviceSubClass=0x00,
+        ... bDeviceProtocol=0xEE,
+        ... bMaxPacketSize0=64,
+        ... bNumConfigurations=1)
+        >>> bytes(d)
+        b'\\n\\x06\\x00\\x01\\xff\\x00\\xee@\\x01\\x00'
+        >>> d.get()
+        [10, 6, 0, 1, 255, 0, 238, 64, 1, 0]
+        """
         return pack(self.FORMAT,
                     self.bLength,
                     self.bDescriptorType,
@@ -373,7 +499,18 @@ class USBDeviceRequest():
         self.wLength = wLength
 
     def build(bmRequestType, bRequest, wValue, wIndex, wLength):
-        """Create a USB request with provided values."""
+        """Create a USB request with provided values.
+
+        .. doctest::
+
+            >>> USBDeviceRequest.build(
+            ... bmRequestType=0x00,
+            ... bRequest=0x05,
+            ... wValue=0x02,
+            ... wIndex=0x00,
+            ... wLength=0x00)
+            [0, 5, 2, 0, 0, 0, 0, 0]
+        """
         return [
             bmRequestType,
             bRequest,
@@ -386,6 +523,16 @@ class USBDeviceRequest():
         ]
 
     def __bytes__(self):
+        """
+        >>> r = USBDeviceRequest(
+        ... bmRequestType=0x00,
+        ... bRequest=0x05,
+        ... wValue=0x02,
+        ... wIndex=0x00,
+        ... wLength=0x00)
+        >>> bytes(r)
+        b'\\x00\\x05\\x02\\x00\\x00\\x00\\x00\\x00'
+        """
         return pack(self.FORMAT,
                     self.bmRequestType,
                     self.bRequest,
@@ -399,6 +546,11 @@ def setAddressRequest(address):
 
     Args:
         address (int): Address to be set. Should be below 128.
+
+    .. doctest::
+
+        >>> setAddressRequest(0x30)
+        [0, 5, 48, 0, 0, 0, 0, 0]
     """
     assert address <= 127
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE
@@ -419,6 +571,16 @@ def getDescriptorRequest(descriptor_type, descriptor_index, lang_id, length):
         descriptor_index (int): Index of descriptor to be read.
         lang_id (int): LangId of descriptor to be read or 0 if unspecified.
         length (int): Number of bytes requested.
+
+    .. doctest::
+
+        >>> getDescriptorRequest(
+        ... descriptor_type=2,
+        ... descriptor_index=1,
+        ... lang_id=0,
+        ... length=9
+        ... )
+        [128, 6, 1, 2, 0, 0, 9, 0]
     """
     return USBDeviceRequest.build(
         USBDeviceRequest.Type.DEVICE_TO_HOST | USBDeviceRequest.Type.STANDARD
@@ -435,6 +597,11 @@ def setConfigurationRequest(configuration):
     Args:
         configuration (int): Configuration value to be set.
             Should be below 256.
+
+    .. doctest::
+
+         >>> setConfigurationRequest(3)
+         [0, 9, 3, 0, 0, 0, 0, 0]
     """
     # Upper byte of wValue byte is reserved here
     assert configuration <= 255
@@ -457,6 +624,13 @@ def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
         target (int): Number of interface or endpoint.
         test_selector (int): Test mode selector, valid only for TEST_MODE
             feature selector.
+
+    .. doctest::
+
+        >>> setFeatureRequest(
+        ... feature_selector=0,
+        ... recipient=0)
+        [0, 3, 0, 0, 0, 0, 0, 0]
     """
     return USBDeviceRequest.build(USBDeviceRequest.Type.HOST_TO_DEVICE
                                   | USBDeviceRequest.Type.STANDARD | recipient,
@@ -465,3 +639,8 @@ def setFeatureRequest(feature_selector, recipient, target=0, test_selector=0):
                                   | feature_selector,
                                   wIndex=test_selector << 8 | target,
                                   wLength=0)
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()

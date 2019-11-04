@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
-from .pid import PID
+from cocotb_usb.usb.pid import PID
 
 
 def pp_packet(p, cycles=4):
     """
+    >>> from cocotb_usb.usb.packet import (wrap_packet, data_packet,
+    ... sof_packet, handshake_packet, token_packet)
     >>> print(pp_packet(wrap_packet(handshake_packet(PID.ACK), cycles=1),\
 cycles=1))
     -
@@ -260,6 +262,7 @@ cycles=10))
     JJJJ
     KKKK
     JJJJ END
+
     >>> print(pp_packet(wrap_packet(sof_packet(12))))
     ----
     KKKK 1 Sync
@@ -280,22 +283,22 @@ cycles=10))
     KKKK 7 PID
     KKKK 8 PID
     ----
-    KKKK  1 Frame #
-    JJJJ  2 Frame #
+    JJJJ  1 Frame #
+    KKKK  2 Frame #
     KKKK  3 Frame #
-    JJJJ  4 Frame #
-    KKKK  5 Frame #
-    JJJJ  6 Frame #
-    KKKK  7 Frame #
-    JJJJ  8 Frame #
+    KKKK  4 Frame #
+    JJJJ  5 Frame #
+    KKKK  6 Frame #
+    JJJJ  7 Frame #
+    KKKK  8 Frame #
     ----
     JJJJ  9 Frame #
-    JJJJ 10 Frame #
-    KKKK 11 Frame #
-    KKKK 1 CRC5
+    KKKK 10 Frame #
+    JJJJ 11 Frame #
+    JJJJ 1 CRC5
     JJJJ 2 CRC5
     KKKK 3 CRC5
-    JJJJ 4 CRC5
+    KKKK 4 CRC5
     JJJJ 5 CRC5
     ----
     ____ SE0
@@ -303,7 +306,6 @@ cycles=10))
     JJJJ END
 
     """
-
     output = []
     chunks = [p[i:i + cycles] for i in range(0, len(p), cycles)]
 

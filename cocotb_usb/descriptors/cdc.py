@@ -22,8 +22,8 @@
 
 import struct
 
-from . import Descriptor
-from ..utils import getVal
+from cocotb_usb.descriptors import Descriptor
+from cocotb_usb.utils import getVal
 
 """
 CDC specific descriptors
@@ -101,6 +101,13 @@ class Header(CDC):
         return [str(self)]
 
     def __bytes__(self):
+        """
+        >>> h = Header(bcdCDC=0x0110)
+        >>> bytes(h)
+        b'\\x05$\\x00\\x10\\x01'
+        >>> h.get()
+        [5, 36, 0, 16, 1]
+        """
         return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
@@ -131,6 +138,15 @@ class CallManagement(CDC):
         return [str(self)]
 
     def __bytes__(self):
+        """
+        >>> cm = CallManagement(
+        ... bmCapabilities=0,
+        ... bDataInterface=1)
+        >>> bytes(cm)
+        b'\\x05$\\x01\\x00\\x01'
+        >>> cm.get()
+        [5, 36, 1, 0, 1]
+        """
         return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
@@ -160,6 +176,13 @@ class AbstractControlManagement(CDC):
         return [str(self)]
 
     def __bytes__(self):
+        """
+        >>> acm = AbstractControlManagement(bmCapabilities=6)
+        >>> bytes(acm)
+        b'\\x04$\\x02\\x06'
+        >>> acm.get()
+        [4, 36, 2, 6]
+        """
         return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
@@ -188,6 +211,13 @@ class DirectLineManagement(CDC):
         return [str(self)]
 
     def __bytes__(self):
+        """
+        >>> dlm = DirectLineManagement(bmCapabilities=1)
+        >>> bytes(dlm)
+        b'\\x04$\\x03\\x01'
+        >>> dlm.get()
+        [4, 36, 3, 1]
+        """
         return struct.pack(self.FORMAT,
                            self.bLength,
                            self.bDescriptorType,
@@ -223,6 +253,15 @@ class Union(CDC):
         return [str(self)]
 
     def __bytes__(self):
+        """
+        >>> u = Union(
+        ... bMasterInterface=0,
+        ... bSlaveInterface_list=[1])
+        >>> bytes(u)
+        b'\\x05$\\x06\\x00\\x01'
+        >>> u.get()
+        [5, 36, 6, 0, 1]
+        """
         desc = struct.pack(self.FIXED_FORMAT,
                            self.bLength,
                            self.bDescriptorType,
@@ -237,6 +276,55 @@ def parseCDC(field):
 
     Args:
         field:  JSON structure for this class to be parsed.
+
+
+    .. doctest:
+
+        >>> f =  {
+        ... "name": "Header Functional",
+        ... "bLength":                5,
+        ... "bDescriptorType":   "0x24",
+        ... "bDescriptorSubtype":     0,
+        ... "bcdCDC":          "0x0110"
+        ... }
+        >>> h = parseCDC(f)
+        >>> h.get()
+        [5, 36, 0, 16, 1]
+
+        >>> f = {
+        ... "name": "Call Management Functional",
+        ... "bLength":                         5,
+        ... "bDescriptorType":            "0x24",
+        ... "bDescriptorSubtype":              1,
+        ... "bmCapabilities":                  0,
+        ... "bDataInterface":                  1
+        ... }
+        >>> cm = parseCDC(f)
+        >>> cm.get()
+        [5, 36, 1, 0, 1]
+
+        >>> f = {
+        ... "name":  "ACM Functional",
+        ... "bLength":              4,
+        ... "bDescriptorType": "0x24",
+        ... "bDescriptorSubtype":   2,
+        ... "bmCapabilities":       6
+        ... }
+        >>> acm = parseCDC(f)
+        >>> acm.get()
+        [4, 36, 2, 6]
+
+        >>> f = {
+        ... "name": "Union Functional",
+        ... "bLength":               5,
+        ... "bDescriptorType":  "0x24",
+        ... "bDescriptorSubtype":    6,
+        ... "bMasterInterface":      0,
+        ... "bSlaveInterface":   [ 1 ]
+        ... }
+        >>> u = parseCDC(f)
+        >>> u.get()
+        [5, 36, 6, 0, 1]
     """
     bDescriptorSubtype = getVal(field["bDescriptorSubtype"], 0, 0xFF)
     if bDescriptorSubtype == CDC.Subtype.HEADER:
@@ -289,3 +377,7 @@ def parseCDC(field):
 cdcParsers = {Descriptor.Types.CLASS_SPECIFIC_INTERFACE: parseCDC,
               # CDC.Type.Data uses standard endpoints
               }
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()

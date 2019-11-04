@@ -1,0 +1,22 @@
+os: linux
+dist: bionic
+language: python
+python:
+  - "3.7"
+
+cache:
+  pip: true
+
+jobs:
+  include:
+    - name: "Python PEP8 checks"
+      install:
+        - pip install flake8
+      script:
+        - flake8 .
+    - name: "Doctests"
+      install:
+        - pip install pytest cocotb
+        - pip install -e .
+      script:
+        - pytest --doctest-modules .
