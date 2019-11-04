@@ -233,7 +233,6 @@ def getClassParsers(c):
     try:
         return parsers[c]
     except KeyError:
-        print("No class-specific parsers found for {}".format(c))
         return None
 
 
@@ -257,10 +256,7 @@ def parseInterface(intf):
     bInterfaceClass = getVal(intf["bInterfaceClass"], 0, 0xFF)
     bInterfaceSubclass = getVal(intf["bInterfaceSubClass"], 0, 0xFF)
     bInterfaceProtocol = getVal(intf["bInterfaceProtocol"], 0, 0xFF)
-    if isStandard(bInterfaceClass):
-        parsers = None
-    else:
-        parsers = getClassParsers(bInterfaceClass)
+    parsers = getClassParsers(bInterfaceClass)
     sub_list = [parse(e, parsers) for e in intf["Subdescriptors"]]
     return InterfaceDescriptor(
         bLength=getVal(intf["bLength"], 0, 0xFF),
