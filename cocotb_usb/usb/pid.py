@@ -64,7 +64,7 @@ class PID(IntEnum):
 
     def encode(self, cycles=4):
         # Prevent cyclic imports by importing here...
-        from .packet import nrzi, sync, encode_pid
+        from cocotb_usb.usb.packet import nrzi, sync, encode_pid
         return nrzi(sync() + encode_pid(self.value),
                     cycles)[cycles * len(sync()):]
 
