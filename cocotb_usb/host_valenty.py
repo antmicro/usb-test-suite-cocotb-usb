@@ -26,7 +26,7 @@ class UsbTestValenty(UsbTest):
     """
     def __init__(self, dut, csr_file, **kwargs):
         # Litex imports
-        from wishbone import WishboneMaster
+        from cocotb_usb.wishbone import WishboneMaster
 
         self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
         self.csrs = dict()
