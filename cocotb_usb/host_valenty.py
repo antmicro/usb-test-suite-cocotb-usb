@@ -293,28 +293,15 @@ class UsbTestValenty(UsbTest):
             )
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
-        if setup_ev != 0:
-            raise TestFailure(
-                "setup_ev should be 0 at the start of the test, was: {:02x}".
-                format(setup_ev))
 
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
-        if setup_ev != 1:
-            raise TestFailure(
-                "setup_ev should be 1, was: {:02x}".format(setup_ev))
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
 
         # Data stage
-        if descriptor_data is not None:
-            out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
-            if out_ev != 0:
-                raise TestFailure(
-                    "out_ev should be 0 at the start of the test, was: {:02x}".
-                    format(out_ev))
         if (setup_data[7] != 0
                 or setup_data[6] != 0) and descriptor_data is None:
             raise Exception(
@@ -337,19 +324,10 @@ class UsbTestValenty(UsbTest):
         # Status stage
         self.dut._log.info("status stage")
         yield self.write(self.csrs['usb_in_ctrl'], 0)  # Send empty IN packet
-        in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
-        if in_ev != 0:
-            raise TestFailure(
-                "in_ev should be 0 at the start of the test, was: {:02x}".
-                format(in_ev))
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
         yield RisingEdge(self.dut.clk12)
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
-        if in_ev != 1:
-            raise TestFailure(
-                "in_ev should be 1 at the end of the test, was: {:02x}".format(
-                    in_ev))
         yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
         yield self.write(self.csrs['usb_in_ctrl'], 1 << 5)  # Reset IN buffer
 
@@ -365,27 +343,16 @@ class UsbTestValenty(UsbTest):
             )
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
-        if setup_ev != 0:
-            raise TestFailure(
-                "setup_ev should be 0 at the start of the test, was: {:02x}".
-                format(setup_ev))
 
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
-        if setup_ev != 1:
-            raise TestFailure(
-                "setup_ev should be 1, was: {:02x}".format(setup_ev))
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
 
         # Data stage
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
-        if in_ev != 0:
-            raise TestFailure(
-                "in_ev should be 0 at the start of the test, was: {:02x}".
-                format(in_ev))
         if (setup_data[7] != 0
                 or setup_data[6] != 0) and descriptor_data is None:
             raise Exception(
@@ -407,26 +374,16 @@ class UsbTestValenty(UsbTest):
             yield RisingEdge(self.dut.clk12)
             yield RisingEdge(self.dut.clk12)
             in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
-            if in_ev != 1:
-                raise TestFailure("in_ev should be 1 at the end of the test,"
-                " was: {:02x}".format(in_ev))
             yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
 
         # Status stage
         yield self.write(self.csrs['usb_out_ctrl'], 0x10)  # Send empty packet
         self.dut._log.info("status stage")
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
-        if out_ev != 0:
-            raise TestFailure(
-                "out_ev should be 0 at the start of the test, was: {:02x}".
-                format(out_ev))
         yield self.transaction_status_out(addr, epaddr_out)
         yield RisingEdge(self.dut.clk12)
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
-        if out_ev != 1:
-            raise TestFailure(
-                "out_ev should be 1 at the end of the test, was: {:02x}".
-                format(out_ev))
+        yield self.write(self.csrs['usb_out_ctrl'], 0x20)  # Reset FIFO
         yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
 
     @cocotb.coroutine
