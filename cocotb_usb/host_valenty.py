@@ -1,5 +1,5 @@
 import cocotb
-from cocotb.triggers import RisingEdge, Timer
+from cocotb.triggers import RisingEdge
 from cocotb.result import TestFailure, ReturnValue
 
 from cocotb_usb.usb.pid import PID
@@ -38,10 +38,6 @@ class UsbTestValenty(UsbTest):
         yield super().reset()
 
         # Enable endpoint 0
-        yield self.write(self.csrs['usb_enable_out0'], 0xff)
-        yield self.write(self.csrs['usb_enable_out1'], 0xff)
-        yield self.write(self.csrs['usb_enable_in0'], 0xff)
-        yield self.write(self.csrs['usb_enable_in1'], 0xff)
         yield self.write(self.csrs['usb_setup_ev_enable'], 0xff)
         yield self.write(self.csrs['usb_in_ev_enable'], 0xff)
         yield self.write(self.csrs['usb_out_ev_enable'], 0xff)
@@ -66,8 +62,16 @@ class UsbTestValenty(UsbTest):
         yield self.write(USB_PULLUP_OUT, 1)
 
     @cocotb.coroutine
-    def clear_pending(self, _ep):
-        yield Timer(0)
+    def clear_pending(self, epaddr):
+        if EndpointType.epdir(epaddr) == EndpointType.IN:
+            # Reset endpoint
+            self.dut._log.info("Clearing IN_EV_PENDING")
+            yield self.write(self.csrs['usb_in_ctrl'], 0x20)
+            yield self.write(self.csrs['usb_in_ev_pending'], 0xff)
+        else:
+            self.dut._log.info("Clearing OUT_EV_PENDING")
+            yield self.write(self.csrs['usb_out_ev_pending'], 0xff)
+            yield self.write(self.csrs['usb_out_ctrl'], 0x20)
 
     @cocotb.coroutine
     def disconnect(self):
@@ -80,9 +84,11 @@ class UsbTestValenty(UsbTest):
     def pending(self, ep):
         if EndpointType.epdir(ep) == EndpointType.IN:
             val = yield self.read(self.csrs['usb_in_status'])
+            raise ReturnValue(val & (1 << 4))
         else:
             val = yield self.read(self.csrs['usb_out_status'])
-        raise ReturnValue(val & 1)
+            raise ReturnValue((val & (1 << 5) | (1 << 4))
+                              and (EndpointType.epnum(ep) == (val & 0x0f)))
 
     @cocotb.coroutine
     def expect_setup(self, epaddr, expected_data):
@@ -91,7 +97,7 @@ class UsbTestValenty(UsbTest):
         for i in range(128):
             self.dut._log.debug("Prime loop {}".format(i))
             status = yield self.read(self.csrs['usb_setup_status'])
-            have = status & 1
+            have = status & 0x10
             if have:
                 break
             yield RisingEdge(self.dut.clk12)
@@ -99,11 +105,10 @@ class UsbTestValenty(UsbTest):
         for i in range(48):
             self.dut._log.debug("Read loop {}".format(i))
             status = yield self.read(self.csrs['usb_setup_status'])
-            have = status & 1
+            have = status & 0x10
             if not have:
                 break
             v = yield self.read(self.csrs['usb_setup_data'])
-            yield self.write(self.csrs['usb_setup_ctrl'], 1)
             actual_data.append(v)
             yield RisingEdge(self.dut.clk12)
 
@@ -118,34 +123,39 @@ class UsbTestValenty(UsbTest):
                     "SETUP packet not received")
         assertEqual(crc16(expected_data), actual_crc16,
                     "CRC16 not valid")
+        # Acknowledge that we've handled the setup packet
+        yield self.write(self.csrs['usb_setup_ctrl'], 2)
 
     @cocotb.coroutine
     def drain_setup(self):
         actual_data = []
         for i in range(48):
             status = yield self.read(self.csrs['usb_setup_status'])
-            have = status & 1
+            have = status & 0x10
             if not have:
                 break
             v = yield self.read(self.csrs['usb_setup_data'])
-            yield self.write(self.csrs['usb_setup_ctrl'], 1)
             actual_data.append(v)
             yield RisingEdge(self.dut.clk12)
+        yield self.write(self.csrs['usb_setup_ctrl'], 2)
+        # Drain the pending bit
+        yield self.write(self.csrs['usb_setup_ev_pending'], 0xff)
         return actual_data
 
     @cocotb.coroutine
     def drain_out(self):
         actual_data = []
-        for i in range(48):
+        for i in range(70):
             status = yield self.read(self.csrs['usb_out_status'])
-            have = status & 1
+            have = status & (1 << 4)
             if not have:
                 break
             v = yield self.read(self.csrs['usb_out_data'])
-            yield self.write(self.csrs['usb_out_ctrl'], 1)
             actual_data.append(v)
             yield RisingEdge(self.dut.clk12)
-        return actual_data
+        yield self.write(self.csrs['usb_out_ev_pending'], 0xff)
+        yield self.write(self.csrs['usb_out_ctrl'], 0x10)
+        return actual_data[:-2]  # Strip off CRC16
 
     @cocotb.coroutine
     def expect_data(self, epaddr, expected_data, expected):
@@ -154,7 +164,7 @@ class UsbTestValenty(UsbTest):
         for i in range(128):
             self.dut._log.debug("Prime loop {}".format(i))
             status = yield self.read(self.csrs['usb_out_status'])
-            have = status & 1
+            have = status & (1 << 4)
             if have:
                 break
             yield RisingEdge(self.dut.clk12)
@@ -162,11 +172,10 @@ class UsbTestValenty(UsbTest):
         for i in range(256):
             self.dut._log.debug("Read loop {}".format(i))
             status = yield self.read(self.csrs['usb_out_status'])
-            have = status & 1
+            have = status & (1 << 4)
             if not have:
                 break
             v = yield self.read(self.csrs['usb_out_data'])
-            yield self.write(self.csrs['usb_out_ctrl'], 3)
             actual_data.append(v)
             yield RisingEdge(self.dut.clk12)
 
@@ -181,18 +190,27 @@ class UsbTestValenty(UsbTest):
                         "DATA packet not correctly received")
             assertEqual(crc16(expected_data), actual_crc16,
                         "CRC16 not valid")
+            pending = yield self.read(self.csrs['usb_out_ev_pending'])
+            if pending != 1:
+                raise TestFailure('event not generated')
+            yield self.write(self.csrs['usb_out_ev_pending'], pending)
 
     @cocotb.coroutine
     def set_response(self, ep, response):
-        if EndpointType.epdir(
-                ep) == EndpointType.IN and response == EndpointResponse.ACK:
+        if (EndpointType.epdir(ep) == EndpointType.IN
+                and response == EndpointResponse.ACK):
             yield self.write(self.csrs['usb_in_ctrl'], EndpointType.epnum(ep))
+        elif (EndpointType.epdir(ep) == EndpointType.OUT
+                and response == EndpointResponse.ACK):
+            yield self.write(self.csrs['usb_out_ctrl'],
+                             0x10 | EndpointType.epnum(ep))
 
     @cocotb.coroutine
     def send_data(self, token, ep, data):
         for b in data:
             yield self.write(self.csrs['usb_in_data'], b)
-        yield self.write(self.csrs['usb_in_ctrl'], ep)
+        yield self.write(self.csrs['usb_in_ctrl'],
+                         EndpointType.epnum(ep) & 0x0f)
 
     @cocotb.coroutine
     def transaction_setup(self, addr, data, epnum=0):
@@ -208,16 +226,17 @@ class UsbTestValenty(UsbTest):
                              ep,
                              data,
                              chunk_size=64,
-                             expected=PID.ACK):
+                             expected=PID.ACK,
+                             datax=PID.DATA1):
         epnum = EndpointType.epnum(ep)
-        datax = PID.DATA1
 
         # # Set it up so we ACK the final IN packet
         # yield self.write(self.csrs['usb_in_ctrl'], 0)
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
-            self.dut._log.warning("Sening {} bytes to host".format(len(chunk)))
+            self.dut._log.warning("Sending {} bytes to host"
+                                  .format(len(chunk)))
             # Enable receiving data
-            yield self.write(self.csrs['usb_out_ctrl'], (1 << 1))
+            yield self.set_response(ep, EndpointResponse.ACK)
             xmit = cocotb.fork(
                 self.host_send(datax, addr, epnum, chunk, expected))
             yield self.expect_data(epnum, list(chunk), expected)
@@ -229,9 +248,13 @@ class UsbTestValenty(UsbTest):
                 datax = PID.DATA0
 
     @cocotb.coroutine
-    def transaction_data_in(self, addr, ep, data, chunk_size=64):
+    def transaction_data_in(self,
+                            addr,
+                            ep,
+                            data,
+                            chunk_size=64,
+                            datax=PID.DATA1):
         epnum = EndpointType.epnum(ep)
-        datax = PID.DATA1
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             sent_data = 1
@@ -305,20 +328,15 @@ class UsbTestValenty(UsbTest):
                 "was specified"
             )
         if descriptor_data is not None:
+            yield self.host_send_token_packet(PID.OUT, 0, 0)
+            yield self.host_send_data_packet(PID.DATA1, descriptor_data[:64])
+            yield self.host_expect_nak()
             self.dut._log.info("data stage")
             yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
-        if descriptor_data is not None:
-            yield RisingEdge(self.dut.clk12)
-            out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
-            if out_ev != 1:
-                raise TestFailure(
-                    "out_ev should be 1 at the end of the test, was: {:02x}".
-                    format(out_ev))
-            yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
 
         # Status stage
         self.dut._log.info("status stage")
-
+        yield self.write(self.csrs['usb_in_ctrl'], 0)  # Send empty IN packet
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 0:
             raise TestFailure(
@@ -326,12 +344,14 @@ class UsbTestValenty(UsbTest):
                 format(in_ev))
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
+        yield RisingEdge(self.dut.clk12)
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         if in_ev != 1:
             raise TestFailure(
                 "in_ev should be 1 at the end of the test, was: {:02x}".format(
                     in_ev))
         yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
+        yield self.write(self.csrs['usb_in_ctrl'], 1 << 5)  # Reset IN buffer
 
     @cocotb.coroutine
     def control_transfer_in(self, addr, setup_data, descriptor_data=None):
@@ -382,17 +402,18 @@ class UsbTestValenty(UsbTest):
             self.dut._log.info("data stage")
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
 
-        # Give the signal one clock cycle to perccolate
-        # through the event manager
-        yield RisingEdge(self.dut.clk12)
-        in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
-        if in_ev != 1:
-            raise TestFailure(
-                "in_ev should be 1 at the end of the test, was: {:02x}".format(
-                    in_ev))
-        yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
+            # Give the signal two clock cycles
+            # to percolate through the event manager
+            yield RisingEdge(self.dut.clk12)
+            yield RisingEdge(self.dut.clk12)
+            in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
+            if in_ev != 1:
+                raise TestFailure("in_ev should be 1 at the end of the test,"
+                " was: {:02x}".format(in_ev))
+            yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
 
         # Status stage
+        yield self.write(self.csrs['usb_out_ctrl'], 0x10)  # Send empty packet
         self.dut._log.info("status stage")
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
         if out_ev != 0:
