@@ -25,9 +25,10 @@ class UsbTest:
             share clock signal. If set to False (default), you must provide
             clk48_device clock in test.
     """
-    # How long to keep trying when getting NAKs
-    RETRY_WAIT = 100  # us
-    MAX_RETRIES = 10
+    # Retry interval if getting NAKs, arbitrary value - should be small enough
+    # not to limit long transfers, but large enough not to pepper the traces
+    # with NAKed requests
+    RETRY_WAIT = 50  # us
 
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
@@ -66,7 +67,7 @@ class UsbTest:
         Args:
             time (int): Duration of reset in us.
         """
-        self.dut._log.debug("Resetting port for {} us".format(time))
+        self.dut._log.info("[Resetting port for {} us]".format(time))
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
         yield Timer(time, units="us")
@@ -152,9 +153,10 @@ class UsbTest:
         while self.retry:
             # Do we still have time?
             current = get_sim_time("us")
-            self.dut._log.warning("Expecting status {} at {:.0f}, deadline {:.0f}".format(expected, current, self.packet_deadline))
+            self.dut._log.info("Sending data at {:.0f}, deadline {:.0f}"
+                               .format(current, self.packet_deadline))
             if current > self.packet_deadline:
-                raise TestFailure("Did not receive data in time")
+                raise TestFailure("Did not finish data transfer in time")
 
             yield self.host_send_token_packet(PID.OUT, addr, epnum)
             yield self.host_send_data_packet(data01, data)
@@ -172,7 +174,9 @@ class UsbTest:
         while self.retry:
             # Do we still have time?
             current = get_sim_time("us")
-            self.dut._log.warning("Trying setup at {:.0f}, deadline {:.0f}".format(current, setup_deadline))
+            self.dut._log.info("Sending setup packet at {:.0f}, "
+                               "deadline {:.0f}".format(current,
+                                                        setup_deadline))
             if current > setup_deadline:
                 raise TestFailure("Failed to send setup packet")
 
@@ -188,7 +192,8 @@ class UsbTest:
             yield Timer(5, "us")
             # Do we still have time?
             current = get_sim_time("us")
-            self.dut._log.warning("Getting data at {:.0f}, deadline {:.0f}".format(current, self.packet_deadline))
+            self.dut._log.info("Getting data at {:.0f}, deadline {:.0f}"
+                               .format(current, self.packet_deadline))
             if current > self.packet_deadline:
                 raise TestFailure("Did not receive data in time")
 
@@ -269,7 +274,7 @@ class UsbTest:
         actual = pp_packet(result)
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
         if (actual == nak) and (expected != nak):
-            self.dut._log.info("Got NAK, retrying")
+            self.dut._log.info("Got NAK, retry")
             yield Timer(self.RETRY_WAIT, 'us')
             return
         else:
@@ -325,7 +330,7 @@ class UsbTest:
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to device".format(
                 len(chunk)))
-            self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e2  # 500 ms
+            self.packet_deadline = get_sim_time("us") + 5e2  # 500 ms
             xmit = cocotb.fork(
                 self.host_send(datax, addr, epnum, chunk, expected))
             yield xmit.join()
@@ -423,7 +428,7 @@ class UsbTest:
 
         # Was the time limit honored?
         if get_sim_time("us") > self.request_deadline:
-            raise TestFailure("Failed to process the request in time")
+            raise TestFailure("Failed to process the OUT request in time")
 
         yield RisingEdge(self.dut.clk48_host)
 
@@ -461,7 +466,7 @@ class UsbTest:
 
         # Setup stage
         self.dut._log.info("setup stage")
-        self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e1  # 50 ms
+        self.packet_deadline = get_sim_time("us") + 5e1  # 50 ms
         yield self.transaction_setup(addr, setup_data)
         self.request_deadline = get_sim_time("us") + 5e3  # 5 seconds
 
@@ -481,7 +486,7 @@ class UsbTest:
 
         # Was the time limit honored?
         if get_sim_time("us") > self.request_deadline:
-            raise TestFailure("Failed to process the request in time")
+            raise TestFailure("Failed to process the IN request in time")
 
         yield RisingEdge(self.dut.clk48_host)
 
@@ -492,7 +497,7 @@ class UsbTest:
         Args:
             address (int): Value to be set.
         """
-        self.dut._log.debug("Setting device address")
+        self.dut._log.info("[Setting device address to {}]".format(address))
         yield self.control_transfer_out(
             self.address,
             setAddressRequest(address),
@@ -510,7 +515,7 @@ class UsbTest:
         Args:
             response: Expected descriptor contents as list of bytes.
         """
-        self.dut._log.debug("Getting device descriptor")
+        self.dut._log.info("[Getting device descriptor]")
         request = getDescriptorRequest(descriptor_type=Descriptor.Types.DEVICE,
                                        descriptor_index=0,
                                        lang_id=Descriptor.LangId.UNSPECIFIED,
@@ -525,7 +530,7 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
-        self.dut._log.debug("Getting config descriptor")
+        self.dut._log.info("[Getting config descriptor]")
         request = getDescriptorRequest(
             descriptor_type=Descriptor.Types.CONFIGURATION,
             descriptor_index=0,
@@ -543,7 +548,8 @@ class UsbTest:
             idx (int): Descriptor index.
             response: Expected descriptor contents as list of bytes.
         """
-        self.dut._log.debug("Getting string descriptor")
+        self.dut._log.info("[Getting string descriptor {} of langId {:#x}]"
+                           .format(idx, lang_id))
         request = getDescriptorRequest(descriptor_type=Descriptor.Types.STRING,
                                        descriptor_index=idx,
                                        lang_id=lang_id,
@@ -559,7 +565,7 @@ class UsbTest:
             length (int): Number of bytes to be read.
             response: Expected descriptor contents as list of bytes.
         """
-        self.dut._log.debug("Getting device qualifier descriptor")
+        self.dut._log.info("[Getting device qualifier descriptor]")
         request = getDescriptorRequest(
             descriptor_type=Descriptor.Types.DEVICE_QUALIFIER,
             descriptor_index=0,
@@ -577,7 +583,7 @@ class UsbTest:
         """
         request = setConfigurationRequest(idx)
 
-        self.dut._log.debug("Setting device configuration")
+        self.dut._log.info("[Setting device configuration {}]".format(idx))
         yield self.control_transfer_out(
             self.address,
             request,

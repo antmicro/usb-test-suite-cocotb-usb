@@ -236,7 +236,7 @@ class UsbTestValenty(UsbTest):
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to host"
                                   .format(len(chunk)))
-            self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e2  # 500 ms
+            self.packet_deadline = get_sim_time("us") + 5e2  # 500 ms
             # Enable receiving data
             yield self.set_response(ep, EndpointResponse.ACK)
             xmit = cocotb.fork(
@@ -334,7 +334,7 @@ class UsbTestValenty(UsbTest):
 
         # Status stage
         self.dut._log.info("status stage")
-        self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e2  # 50 ms
+        self.packet_deadline = get_sim_time("us") + 5e2  # 50 ms
         yield self.write(self.csrs['usb_in_ctrl'], 0)  # Send empty IN packet
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
@@ -345,7 +345,7 @@ class UsbTestValenty(UsbTest):
 
         # Was the time limit honored?
         if get_sim_time("us") > self.request_deadline:
-            raise TestFailure("Failed to process the request in time")
+            raise TestFailure("Failed to process the OUT request in time")
 
     @cocotb.coroutine
     def control_transfer_in(self, addr, setup_data, descriptor_data=None):
@@ -406,7 +406,7 @@ class UsbTestValenty(UsbTest):
 
         # Was the time limit honored?
         if get_sim_time("us") > self.request_deadline:
-            raise TestFailure("Failed to process the request in time")
+            raise TestFailure("Failed to process the IN request in time")
 
     @cocotb.coroutine
     def set_device_address(self, address):
