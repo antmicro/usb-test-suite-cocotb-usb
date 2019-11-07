@@ -2,6 +2,7 @@ import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, ClockCycles
 from cocotb.result import TestFailure
+from cocotb.utils import get_sim_time
 
 from cocotb_usb.descriptors import (Descriptor, getDescriptorRequest,
                                     setAddressRequest, setConfigurationRequest)
@@ -147,8 +148,14 @@ class UsbTest:
     @cocotb.coroutine
     def host_send(self, data01, addr, epnum, data, expected=PID.ACK):
         """Send data out the virtual USB connection, including an OUT token."""
-        self.retries = self.MAX_RETRIES
-        while self.retries:
+        self.retry = True
+        while self.retry:
+            # Do we still have time?
+            current = get_sim_time("us")
+            self.dut._log.warning("Expecting status {} at {:.0f}, deadline {:.0f}".format(expected, current, self.packet_deadline))
+            if current > self.packet_deadline:
+                raise TestFailure("Did not receive data in time")
+
             yield self.host_send_token_packet(PID.OUT, addr, epnum)
             yield self.host_send_data_packet(data01, data)
             yield self.host_expect_packet(handshake_packet(expected),
@@ -160,8 +167,15 @@ class UsbTest:
         """Send data out the virtual USB connection, including a SETUP
         token.
         """
-        self.retries = self.MAX_RETRIES
-        while self.retries:
+        setup_deadline = get_sim_time("us") + 5e3  # Try for 5 ms
+        self.retry = True
+        while self.retry:
+            # Do we still have time?
+            current = get_sim_time("us")
+            self.dut._log.warning("Trying setup at {:.0f}, deadline {:.0f}".format(current, setup_deadline))
+            if current > setup_deadline:
+                raise TestFailure("Failed to send setup packet")
+
             yield self.host_send_token_packet(PID.SETUP, addr, epnum)
             yield self.host_send_data_packet(PID.DATA0, data)
             yield self.host_expect_ack()
@@ -169,9 +183,15 @@ class UsbTest:
     @cocotb.coroutine
     def host_recv(self, data01, addr, epnum, data):
         """Send data out the virtual USB connection, including an IN token."""
-        self.retries = self.MAX_RETRIES
-        while self.retries:
-            yield Timer(self.RETRY_WAIT, "us")
+        self.retry = True
+        while self.retry:
+            yield Timer(5, "us")
+            # Do we still have time?
+            current = get_sim_time("us")
+            self.dut._log.warning("Getting data at {:.0f}, deadline {:.0f}".format(current, self.packet_deadline))
+            if current > self.packet_deadline:
+                raise TestFailure("Did not receive data in time")
+
             yield self.host_send_token_packet(PID.IN, addr, epnum)
             yield self.host_expect_data_packet(data01, data)
         yield self.host_send_ack()
@@ -248,14 +268,12 @@ class UsbTest:
         expected = pp_packet(wrap_packet(packet))
         actual = pp_packet(result)
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
-        if (actual == nak) and (expected != nak) and self.retries >= 2:
-            self.retries -= 1
-            self.dut._log.info("Got NAK, retrying "
-                               "({} attempts left)".format(self.retries))
+        if (actual == nak) and (expected != nak):
+            self.dut._log.info("Got NAK, retrying")
             yield Timer(self.RETRY_WAIT, 'us')
             return
         else:
-            self.retries = 0
+            self.retry = False
             assertEqual(expected, actual, msg)
 
     @cocotb.coroutine
@@ -317,6 +335,10 @@ class UsbTest:
         datax = PID.DATA1
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
+            # Do we still have time?
+            if get_sim_time("us") > self.request_deadline:
+                raise TestFailure("Failed to get all data in time")
+
             self.dut._log.debug("Expecting chunk {}".format(i))
             sent_data = 1
             self.dut._log.debug(
@@ -431,11 +453,15 @@ class UsbTest:
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        self.request_deadline = get_sim_time("us") + 5e3  # 5 seconds
 
-        # Data stage
         if descriptor_data is not None:
+            self.packet_deadline = get_sim_time("us") + 5e2  # 500 ms
+            # Data stage
             self.dut._log.info("data stage")
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
+        else:
+            self.packet_deadline = get_sim_time("us") + 5e1  # 50 ms
 
         # Give the signal one clock cycle to perccolate through
         # the event manager
@@ -444,6 +470,11 @@ class UsbTest:
         # Status stage
         self.dut._log.info("status stage")
         yield self.transaction_status_out(addr, epaddr_out)
+
+        # Was the time limit honored?
+        if get_sim_time("us") > self.request_deadline:
+            raise TestFailure("Failed to process the request in time")
+
         yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
@@ -459,6 +490,9 @@ class UsbTest:
             setAddressRequest(address),
             None,
         )
+        # Device is allowed a "recovery period" after status phase
+        # see section 9.2.6.3 of USB spec
+        yield Timer(2, "ms")
         self.address = address
 
     @cocotb.coroutine
