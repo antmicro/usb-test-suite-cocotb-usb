@@ -325,6 +325,7 @@ class UsbTest:
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to device".format(
                 len(chunk)))
+            self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e2  # 500 ms
             xmit = cocotb.fork(
                 self.host_send(datax, addr, epnum, chunk, expected))
             yield xmit.join()
@@ -336,10 +337,13 @@ class UsbTest:
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             # Do we still have time?
-            if get_sim_time("us") > self.request_deadline:
+            current = get_sim_time("us")
+            if current > self.request_deadline:
                 raise TestFailure("Failed to get all data in time")
 
             self.dut._log.debug("Expecting chunk {}".format(i))
+            self.packet_deadline = current + 5e2  # 500 ms
+
             sent_data = 1
             self.dut._log.debug(
                 "Actual data we're expecting: {}".format(chunk))
@@ -404,18 +408,23 @@ class UsbTest:
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        self.request_deadline = get_sim_time("us") + 5e3  # 5 seconds
 
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")
             yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
-        if descriptor_data is not None:
             yield RisingEdge(self.dut.clk48_host)
 
         # Status stage
         self.dut._log.info("status stage")
-
+        self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e2  # 50 ms
         yield self.transaction_status_in(addr, epaddr_in)
+
+        # Was the time limit honored?
+        if get_sim_time("us") > self.request_deadline:
+            raise TestFailure("Failed to process the request in time")
+
         yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
@@ -452,16 +461,14 @@ class UsbTest:
 
         # Setup stage
         self.dut._log.info("setup stage")
+        self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e1  # 50 ms
         yield self.transaction_setup(addr, setup_data)
         self.request_deadline = get_sim_time("us") + 5e3  # 5 seconds
 
         if descriptor_data is not None:
-            self.packet_deadline = get_sim_time("us") + 5e2  # 500 ms
             # Data stage
             self.dut._log.info("data stage")
             yield self.transaction_data_in(addr, epaddr_in, descriptor_data)
-        else:
-            self.packet_deadline = get_sim_time("us") + 5e1  # 50 ms
 
         # Give the signal one clock cycle to perccolate through
         # the event manager
@@ -469,6 +476,7 @@ class UsbTest:
 
         # Status stage
         self.dut._log.info("status stage")
+        self.packet_deadline = cocotb.utils.get_sim_time("us") + 5e1  # 50 ms
         yield self.transaction_status_out(addr, epaddr_out)
 
         # Was the time limit honored?
