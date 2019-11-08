@@ -1,6 +1,7 @@
 import cocotb
 from cocotb.triggers import RisingEdge
 from cocotb.result import TestFailure, ReturnValue
+from cocotb.utils import get_sim_time
 
 from cocotb_usb.usb.pid import PID
 from cocotb_usb.usb.endpoint import EndpointType, EndpointResponse
@@ -235,6 +236,7 @@ class UsbTestValenty(UsbTest):
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to host"
                                   .format(len(chunk)))
+            self.packet_deadline = get_sim_time("us") + super().MAX_PACKET_TIME
             # Enable receiving data
             yield self.set_response(ep, EndpointResponse.ACK)
             xmit = cocotb.fork(
@@ -257,6 +259,14 @@ class UsbTestValenty(UsbTest):
         epnum = EndpointType.epnum(ep)
         sent_data = 0
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
+            # Do we still have time?
+            current = get_sim_time("us")
+            if current > self.request_deadline:
+                raise TestFailure("Failed to get all data in time")
+
+            self.dut._log.debug("Expecting chunk {}".format(i))
+            self.packet_deadline = current + 5e2  # 500 ms
+
             sent_data = 1
             self.dut._log.debug(
                 "Actual data we're expecting: {}".format(chunk))
@@ -297,6 +307,7 @@ class UsbTestValenty(UsbTest):
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        self.request_deadline = get_sim_time("us") + super().MAX_REQUEST_TIME
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
@@ -323,6 +334,7 @@ class UsbTestValenty(UsbTest):
 
         # Status stage
         self.dut._log.info("status stage")
+        self.packet_deadline = get_sim_time("us") + super().MAX_PACKET_TIME
         yield self.write(self.csrs['usb_in_ctrl'], 0)  # Send empty IN packet
         yield self.transaction_status_in(addr, epaddr_in)
         yield RisingEdge(self.dut.clk12)
@@ -330,6 +342,10 @@ class UsbTestValenty(UsbTest):
         in_ev = yield self.read(self.csrs['usb_in_ev_pending'])
         yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
         yield self.write(self.csrs['usb_in_ctrl'], 1 << 5)  # Reset IN buffer
+
+        # Was the time limit honored?
+        if get_sim_time("us") > self.request_deadline:
+            raise TestFailure("Failed to process the OUT request in time")
 
     @cocotb.coroutine
     def control_transfer_in(self, addr, setup_data, descriptor_data=None):
@@ -347,6 +363,7 @@ class UsbTestValenty(UsbTest):
         # Setup stage
         self.dut._log.info("setup stage")
         yield self.transaction_setup(addr, setup_data)
+        self.request_deadline = get_sim_time("us") + super().MAX_REQUEST_TIME
 
         setup_ev = yield self.read(self.csrs['usb_setup_ev_pending'])
         yield self.write(self.csrs['usb_setup_ev_pending'], setup_ev)
@@ -377,6 +394,7 @@ class UsbTestValenty(UsbTest):
             yield self.write(self.csrs['usb_in_ev_pending'], in_ev)
 
         # Status stage
+        self.packet_deadline = get_sim_time("us") + super().MAX_PACKET_TIME
         yield self.write(self.csrs['usb_out_ctrl'], 0x10)  # Send empty packet
         self.dut._log.info("status stage")
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
@@ -385,6 +403,10 @@ class UsbTestValenty(UsbTest):
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
         yield self.write(self.csrs['usb_out_ctrl'], 0x20)  # Reset FIFO
         yield self.write(self.csrs['usb_out_ev_pending'], out_ev)
+
+        # Was the time limit honored?
+        if get_sim_time("us") > self.request_deadline:
+            raise TestFailure("Failed to process the IN request in time")
 
     @cocotb.coroutine
     def set_device_address(self, address):
