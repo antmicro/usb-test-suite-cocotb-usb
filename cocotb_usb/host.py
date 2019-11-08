@@ -28,7 +28,7 @@ class UsbTest:
     # Retry interval if getting NAKs, arbitrary value - should be small enough
     # not to limit long transfers, but large enough not to pepper the traces
     # with NAKed requests
-    RETRY_WAIT = 50  # us
+    RETRY_INTERVAL = 50  # us
 
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
@@ -41,6 +41,9 @@ class UsbTest:
 
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
+        # Initialize packet timeouts if someone uses low-level functions only
+        self.packet_deadline = float('inf')
+        self.request_deadline = float('inf')
         # Set the signal "test_name" to match this test
         import inspect
         tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
@@ -60,16 +63,32 @@ class UsbTest:
         yield ClockCycles(self.dut.clk48_host, 10, rising=True)
 
     @cocotb.coroutine
-    def port_reset(self, time=50e3):
+    def port_reset(self, time=50e3, recover=False):
         """Send USB port reset - SE0 condition for at least 50 ms
         (on root port).
 
         Args:
             time (int): Duration of reset in us.
+            recover (bool): Wait for a recovery period (10 ms) after reset.
         """
         self.dut._log.info("[Resetting port for {} us]".format(time))
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
+        yield Timer(time, units="us")
+        self.connect()
+        if recover:
+            yield self.recover()
+
+    @cocotb.coroutine
+    def recover(self, time=10e3):
+        """Wait a period of time after certain operations, i.e. reset or
+        address setting. Device is not expected to respond during ceratin time
+        after those operations. See section 9.2.6.1 in USB specification
+        for details.
+
+        Args:
+            time (int): Time in `us` to wait.
+        """
         yield Timer(time, units="us")
 
     @cocotb.coroutine
@@ -274,8 +293,8 @@ class UsbTest:
         actual = pp_packet(result)
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
         if (actual == nak) and (expected != nak):
-            self.dut._log.info("Got NAK, retry")
-            yield Timer(self.RETRY_WAIT, 'us')
+            self.dut._log.warn("Got NAK, retry")
+            yield Timer(self.RETRY_INTERVAL, 'us')
             return
         else:
             self.retry = False
@@ -491,11 +510,14 @@ class UsbTest:
         yield RisingEdge(self.dut.clk48_host)
 
     @cocotb.coroutine
-    def set_device_address(self, address):
+    def set_device_address(self, address, skip_recovery=False):
         """Set USB device address.
+        After the transaction host will wait for 2 ms recovery period,
+        during which device is not required to respond.
 
         Args:
             address (int): Value to be set.
+            skip_recovery (bool, optional): Skip the recovery period wait.
         """
         self.dut._log.info("[Setting device address to {}]".format(address))
         yield self.control_transfer_out(
@@ -503,9 +525,10 @@ class UsbTest:
             setAddressRequest(address),
             None,
         )
-        # Device is allowed a "recovery period" after status phase
+        # Device is allowed a "recovery period" of 2 ms after status phase
         # see section 9.2.6.3 of USB spec
-        yield Timer(2, "ms")
+        if not skip_recovery:
+            yield self.recover(2e3)
         self.address = address
 
     @cocotb.coroutine
