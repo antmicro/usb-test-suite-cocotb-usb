@@ -1,6 +1,6 @@
 from cocotb.monitors import BusMonitor
 from cocotb.decorators import coroutine
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import RisingEdge, Timer
 from cocotb.result import TestFailure
 
 from cocotb_usb.usb.packet import sync, eop, nrzi
@@ -12,10 +12,11 @@ class UsbMonitor(BusMonitor):
     Listens for SYNC token then tries to capture the following frame up to EOP.
 
     Args:
-        oversampling (int): #TODO
+        oversampling (int): How many times the signal is sampled on each cycle.
     """
     def __init__(self, *args, **kwargs):
         self.cycles = kwargs.pop('oversampling', 4)
+        self.clock_period = kwargs.pop('clk_period', 20830)  # 48 MHz
 
         self.dut = args[0]
         BusMonitor.__init__(self, *args, **kwargs)
@@ -47,8 +48,11 @@ class UsbMonitor(BusMonitor):
                 raise TestFailure("Unrecognized dut values: {}".format(values))
 
         rcv = False
+        # We want to sample in the middle of a signal to allow for jitter
+        t_middle = Timer(self.clock_period // 4, 'ps')
         while True:
             yield RisingEdge(self.clock)
+            yield t_middle
             if self.in_reset:
                 continue
 
@@ -58,11 +62,11 @@ class UsbMonitor(BusMonitor):
                 self.dut._log.debug(f"Waiting, bit time {bit_time//4}")
                 bit_time_max = 12.5
                 bit_time_acceptable = 7.5
-                if (bit_time / 4.0) > bit_time_max + len(SYNC)/4:
+                if ((bit_time - 8) / 4.0) > bit_time_max + len(SYNC)/4:
                     self.dut._log.error(
                         "No data after {} bit times, which is more than {}".
                         format(bit_time / 4.0, bit_time_max))
-                if (bit_time / 4.0) > bit_time_acceptable + len(SYNC)/4:
+                if ((bit_time - 8) / 4.0) > bit_time_acceptable + len(SYNC)/4:
                     self.dut._log.warn(
                         "No data after {} bit times (> {})".format(
                             bit_time / 4.0, bit_time_acceptable))
@@ -70,14 +74,14 @@ class UsbMonitor(BusMonitor):
             if self.primed and pkt == SYNC:
                 # Start monitoring
                 rcv = True
-                self.dut._log.info("Got SYNC")
+                self.dut._log.debug("Got SYNC")
                 self.dut._log.info("Response came after {} bit times".format(
-                        (bit_time - len(SYNC))/ 4.0))
+                        (bit_time - len(SYNC)) / 4.0))
                 bit_time = 0
                 continue
             elif rcv and (pkt[-len(EOP):] == EOP):
                 # Pass the packet to listeners
-                self.dut._log.info("Got EOP")
+                self.dut._log.debug("Got EOP")
                 self.dut._log.debug("Current packet: [{}]".format(pkt))
                 self._recv(pkt)
                 pkt = ""
