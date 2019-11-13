@@ -16,8 +16,14 @@ class UsbMonitor(BusMonitor):
     """
     def __init__(self, *args, **kwargs):
         self.cycles = kwargs.pop('oversampling', 4)
-        self.dut = kwargs.pop('dut')
+
+        self.dut = args[0]
         BusMonitor.__init__(self, *args, **kwargs)
+        self.primed = False
+
+    def prime(self):
+        """Notify the object that a transaction is expected"""
+        self.primed = True
 
     @coroutine
     def _monitor_recv(self):
@@ -46,25 +52,40 @@ class UsbMonitor(BusMonitor):
             if self.in_reset:
                 continue
 
+            # If someone is waiting for response, measure bit times
+            if self.primed and not rcv:
+                bit_time += 1
+                self.dut._log.debug(f"Waiting, bit time {bit_time//4}")
+                bit_time_max = 12.5
+                bit_time_acceptable = 7.5
+                if (bit_time / 4.0) > bit_time_max + len(SYNC)/4:
+                    self.dut._log.error(
+                        "No data after {} bit times, which is more than {}".
+                        format(bit_time / 4.0, bit_time_max))
+                if (bit_time / 4.0) > bit_time_acceptable + len(SYNC)/4:
+                    self.dut._log.warn(
+                        "No data after {} bit times (> {})".format(
+                            bit_time / 4.0, bit_time_acceptable))
             pkt += current()
-            if pkt == SYNC:
+            if self.primed and pkt == SYNC:
                 # Start monitoring
                 rcv = True
-                self.dut._log.debug("Got SYNC")
+                self.dut._log.info("Got SYNC")
+                self.dut._log.info("Response came after {} bit times".format(
+                        (bit_time - len(SYNC))/ 4.0))
+                bit_time = 0
                 continue
-            elif (pkt[-len(EOP):] == EOP):
+            elif rcv and (pkt[-len(EOP):] == EOP):
                 # Pass the packet to listeners
-                self.dut._log.debug("Got EOP")
+                self.dut._log.info("Got EOP")
                 self.dut._log.debug("Current packet: [{}]".format(pkt))
                 self._recv(pkt)
                 pkt = ""
-                bit_time = 0
                 rcv = False
+                self.primed = False
             elif (not rcv) and (len(pkt) >= len(SYNC)):
                 # Full window and nothing detected, slide it
-                bit_time += 1
                 pkt = pkt[1:]
             else:
                 # We're still gathering samples...
-                bit_time += 1
                 continue

@@ -51,7 +51,7 @@ class UsbTest:
         self.packet_deadline = float('inf')
         self.request_deadline = float('inf')
 
-        self.monitor = UsbMonitor(self.dut, "usb", self.dut.clk48_host, dut=self.dut)
+        self.monitor = UsbMonitor(self.dut, "usb", self.dut.clk48_host)
 
         # Set the signal "test_name" to match this test
         import inspect
@@ -232,7 +232,21 @@ class UsbTest:
     # Device->Host
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
-        result = yield self.monitor.wait_for_recv()
+        # Max receiving time:
+        # 12.5 max bit turnaround
+        # 16 bit SYNC + PID
+        # X bits for data
+        # 19 bit CRC16 + EOP
+        # 4 * clock period to get value in ps
+        timeout = (12.5 + 16 + len(packet) + 19) * 4 * self.clock_period
+        deadline = get_sim_time("ps") + timeout
+        self.dut._log.debug(f"Receiving timeout is {timeout}, "
+            "which will fail at {deadline} ps")
+        self.monitor.prime()
+        result = yield self.monitor.wait_for_recv(timeout)
+        if result is None:
+            current = get_sim_time("ps")
+            raise TestFailure(f"No full packet received @{current}")
 
         # Check the packet received matches
         expected = pp_packet(wrap_packet(packet))
