@@ -13,7 +13,6 @@ from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
 from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.utils import grouper_tofit, assertEqual
-
 from cocotb_usb.monitor import UsbMonitor
 
 

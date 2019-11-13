@@ -27,7 +27,8 @@ class UsbMonitor(BusMonitor):
 
     def prime(self):
         """Notify the object that a transaction is expected"""
-        self.state = self.PRIMED
+        if self.state == self.IDLE:
+            self.state = self.PRIMED
 
     @coroutine
     def _monitor_recv(self):
