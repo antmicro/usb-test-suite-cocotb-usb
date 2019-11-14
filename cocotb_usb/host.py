@@ -13,6 +13,7 @@ from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
 from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.utils import grouper_tofit, assertEqual
+from cocotb_usb.monitor import UsbMonitor
 
 
 class UsbTest:
@@ -48,6 +49,12 @@ class UsbTest:
         # Initialize packet timeouts if someone uses low-level functions only
         self.packet_deadline = float('inf')
         self.request_deadline = float('inf')
+
+        self.monitor = UsbMonitor(self.dut,
+                                  "usb",
+                                  self.dut.clk48_host,
+                                  clk_period=self.clock_period)
+
         # Set the signal "test_name" to match this test
         import inspect
         tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
@@ -227,6 +234,30 @@ class UsbTest:
     # Device->Host
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
+        self.monitor.prime()
+        result = yield self.monitor.wait_for_recv(1e9)  # 1 ms max
+        if result is None:
+            current = get_sim_time("ps")
+            raise TestFailure(f"No full packet received @{current}")
+
+        yield RisingEdge(self.dut.clk48_host)
+        self.dut.usb_d_p = 1
+        self.dut.usb_d_n = 0
+
+        # Check the packet received matches
+        expected = pp_packet(wrap_packet(packet))
+        actual = pp_packet(result)
+        nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
+        if (actual == nak) and (expected != nak):
+            self.dut._log.warn("Got NAK, retry")
+            yield Timer(self.RETRY_INTERVAL, 'us')
+            return
+        else:
+            self.retry = False
+            assertEqual(expected, actual, msg)
+
+    @cocotb.coroutine
+    def host_expect_packet_OLD(self, packet, msg=None):
         """Expect to receive the following USB packet.
 
         Args:
