@@ -520,7 +520,7 @@ class UsbTest:
         yield self.control_transfer_in(self.address, request, response)
 
     @cocotb.coroutine
-    def get_string_descriptor(self, lang_id, idx, response):
+    def get_string_descriptor(self, lang_id, idx, response, length=255):
         """Read a string descriptor from DUT.
 
         Args:
@@ -533,7 +533,7 @@ class UsbTest:
         request = getDescriptorRequest(descriptor_type=Descriptor.Types.STRING,
                                        descriptor_index=idx,
                                        lang_id=lang_id,
-                                       length=255)
+                                       length=length)
 
         yield self.control_transfer_in(self.address, request, response)
 
