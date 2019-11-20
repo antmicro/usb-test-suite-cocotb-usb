@@ -75,6 +75,32 @@ class UsbTest:
         yield ClockCycles(self.dut.clk48_host, 10, rising=True)
 
     @cocotb.coroutine
+    def wait(self, time, units="us"):
+        """Simple wait function with heartbeat messages.
+        This is suitable for longer waits (i.e. bus reset) to make sure
+        simulation still proceeds.
+
+        Args:
+            time (int): Time to wait.
+            units (str, optional): One of
+                ``None``, ``'fs'``, ``'ps'``, ``'ns'``, ``'us'``, ``'ms'``,
+                ``'sec'``.
+                When no *units* is given (``None``) the timestep is determined
+                by the simulator.
+        """
+        beat = True
+
+        @cocotb.coroutine
+        def Heartbeat():
+            while beat:
+                yield Timer(1, units="ms")
+                ct = get_sim_time("us")
+                self.dut._log.info("Waiting, current time {:.0f}".format(ct))
+
+        yield [Timer(time, units="us"), Heartbeat()]
+        beat = False
+
+    @cocotb.coroutine
     def port_reset(self, time=50e3, recover=False):
         """Send USB port reset - SE0 condition for at least 50 ms
         (on root port).
@@ -86,7 +112,8 @@ class UsbTest:
         self.dut._log.info("[Resetting port for {} us]".format(time))
         self.dut.usb_d_p = 0
         self.dut.usb_d_n = 0
-        yield Timer(time, units="us")
+
+        yield self.wait(time, "us")
         self.connect()
         if recover:
             yield self.recover()
@@ -101,7 +128,7 @@ class UsbTest:
         Args:
             time (int): Time in `us` to wait.
         """
-        yield Timer(time, units="us")
+        yield self.wait(time, units="us")
 
     @cocotb.coroutine
     def connect(self):
