@@ -37,6 +37,7 @@ class UsbTest:
 
     def __init__(self, dut, **kwargs):
         decouple_clocks = kwargs.get('decouple_clocks', False)
+        self.max_packet_size = kwargs.get('max_packet_size', 32)
         self.dut = dut
         self.clock_period = 20830
         cocotb.fork(Clock(dut.clk48_host, self.clock_period, 'ps').start())
@@ -312,10 +313,12 @@ class UsbTest:
             yield xmit.join()
 
     @cocotb.coroutine
-    def transaction_data_in(self, addr, ep, data, chunk_size=64):
+    def transaction_data_in(self, addr, ep, data, chunk_size=None):
         epnum = EndpointType.epnum(ep)
         datax = PID.DATA1
         sent_data = 0
+        if chunk_size is None:
+            chunk_size = self.max_packet_size
         for i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             # Do we still have time?
             current = get_sim_time("us")
