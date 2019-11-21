@@ -29,7 +29,7 @@ class UsbTest:
     # Retry interval if getting NAKs, arbitrary value - should be small enough
     # not to limit long transfers, but large enough not to pepper the traces
     # with NAKed requests
-    RETRY_INTERVAL = 50  # us
+    RETRY_INTERVAL = 100  # us
     # Times to complete transfers (in microseconds)
     MAX_REQUEST_TIME = 5e6      # 5 seconds
     MAX_PACKET_TIME = 5e4       # 50 ms
