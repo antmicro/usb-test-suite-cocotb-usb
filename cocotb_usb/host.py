@@ -119,19 +119,7 @@ class UsbTest:
         yield self.wait(time, "us")
         self.connect()
         if recover:
-            yield self.recover()
-
-    @cocotb.coroutine
-    def recover(self, time=10e3):
-        """Wait a period of time after certain operations, i.e. reset or
-        address setting. Device is not expected to respond during ceratin time
-        after those operations. See section 9.2.6.1 in USB specification
-        for details.
-
-        Args:
-            time (int): Time in `us` to wait.
-        """
-        yield self.wait(time, units="us")
+            yield self.wait(1e4, "us")
 
     @cocotb.coroutine
     def connect(self):
@@ -518,7 +506,7 @@ class UsbTest:
         # Device is allowed a "recovery period" of 2 ms after status phase
         # see section 9.2.6.3 of USB spec
         if not skip_recovery:
-            yield self.recover(2e3)
+            yield self.wait(2e3, "us")
         self.address = address
 
     @cocotb.coroutine
