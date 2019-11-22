@@ -101,13 +101,16 @@ class UsbTest:
         beat = False
 
     @cocotb.coroutine
-    def port_reset(self, time=50e3, recover=False):
-        """Send USB port reset - SE0 condition for at least 50 ms
-        (on root port).
+    def port_reset(self, time=10e3, recover=False):
+        """Send USB port reset - SE0 condition.
+        According to USB Specification section 11.5.1.5, the duration
+        of the Resetting state is nominally 10 ms to 20 ms
+        (10 ms is preferred).
 
         Args:
-            time (int): Duration of reset in us.
-            recover (bool): Wait for a recovery period (10 ms) after reset.
+            time (int, optional): Duration of reset in us.
+            recover (bool, optional): Wait for allowed recovery period (10 ms)
+                after reset.
         """
         self.dut._log.info("[Resetting port for {} us]".format(time))
         self.dut.usb_d_p = 0
@@ -265,7 +268,7 @@ class UsbTest:
         self.monitor.prime()
         result = yield self.monitor.wait_for_recv(1e9)  # 1 ms max
         if result is None:
-            current = get_sim_time("ps")
+            current = get_sim_time("us")
             raise TestFailure(f"No full packet received @{current}")
 
         yield RisingEdge(self.dut.clk48_host)
