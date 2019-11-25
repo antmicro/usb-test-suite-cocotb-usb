@@ -22,7 +22,7 @@
 
 import struct
 
-from cocotb_usb.descriptors import Descriptor
+from cocotb_usb.descriptors import Descriptor, USBDeviceRequest
 from cocotb_usb.utils import getVal
 
 """
@@ -377,6 +377,137 @@ def parseCDC(field):
 cdcParsers = {Descriptor.Types.CLASS_SPECIFIC_INTERFACE: parseCDC,
               # CDC.Type.Data uses standard endpoints
               }
+
+class CDCRequest:
+    """Class grouping CDC selected request definitions."""
+    SEND_ENCAPSULATED_COMMAND = 0x00
+    GET_ENCAPSULATED_RESPONSE = 0x01
+    SET_COMM_FEATURE = 0x02
+    GET_COMM_FEATURE = 0x03
+    CLEAR_COMM_FEATURE = 0x04
+    # Reserved - future use 0x05-0x0F
+    SET_LINE_CODING = 0x20
+    GET_LINE_CODING = 0x21
+    SET_CONTROL_LINE_STATE = 0x22
+
+
+class LineCodingStructure:
+    """Structure for storing line coding setting for use with SET_LINE_CODING
+    and GET_LINE_CODING requests.
+
+    Args:
+        dwDTERate (int): Data terminal rate, in bits per second.
+        bCharFormat (int): How many stop bits to use.
+        bParityType (int): Parity type.
+        bDataBits (int): How many data bits are used.
+    """
+    FORMAT = "<LBBB"
+
+    STOP_BITS_1 = 0
+    STOP_BITS_1_5 = 1
+    STOP_BITS_2 = 2
+
+    PARITY_NONE = 0
+    PARITY_ODD = 1
+    PARITY_EVEN = 2
+    PARITY_MARK = 3
+    PARITY_SPACE = 4
+
+    DATA_BITS_5 = 5
+    DATA_BITS_6 = 6
+    DATA_BITS_7 = 7
+    DATA_BITS_8 = 8
+    DATA_BITS_16 = 16
+
+    def __init__(self, dwDTERate, bCharFormat, bParityType, bDataBits):
+        self.dwDTERate = dwDTERate
+        self.bCharFormat = bCharFormat
+        self.bParityType = bParityType
+        self.bDataBits = bDataBits
+
+    @classmethod
+    def size(cls):
+        return struct.calcsize(cls.FORMAT)
+
+    def __bytes__(self):
+        return struct.pack(self.FORMAT,
+                           self.dwDTERate,
+                           self.bCharFormat,
+                           self.bParityType,
+                           self.bDataBits)
+
+    def get(self):
+        """Return structure contents as a list of bytes."""
+        return list(bytes(self))
+
+
+def set_line_coding(interface, data_rate, stop_bits, parity, data_bits):
+    """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
+    See LineCodingStructure for defined parameters.
+
+    Args:
+        interface (int): Target interface number.
+        data_rate (int): Data terminal rate, in bits per second.
+        stop_bits (int): How many stop bits to use.
+        parity (int): Parity type.
+        data_bits (int): How many data bits are used.
+    """
+    Type = USBDeviceRequest.Type  # limit verbosity
+    line_coding = LineCodingStructure(data_rate, stop_bits, parity, data_bits)
+    return USBDeviceRequest.build(
+            bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
+            bRequest=CDCRequest.SET_LINE_CODING,
+            wValue=0,
+            wIndex=interface,
+            wLength=line_coding.size(),
+            ) + line_coding.get()
+
+
+def get_line_coding(interface):
+    """Return a byte list corresponding to a GET_CONTROL_LINE_STATE request.
+    See LineCodingStructure for defined parameters.
+
+    Args:
+        interface (int): Target interface number.
+    """
+    Type = USBDeviceRequest.Type  # limit verbosity
+    return USBDeviceRequest.build(
+            bmRequestType=Type.DEVICE_TO_HOST | Type.CLASS | Type.INTERFACE,
+            bRequest=CDCRequest.GET_LINE_CODING,
+            wValue=0,
+            wIndex=interface,
+            wLength=LineCodingStructure.size(),
+            )
+
+
+def set_control_line_state(interface, rts, dtr):
+    """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
+
+    Args:
+        interface (int): Target interface number.
+        rts (bool): Whether to set RTS line to 1 (True) or 0 (False).
+        dtr (bool): Whether to set DTR line to 1 (True) or 0 (False).
+
+    .. doctest::
+
+        >>> set_control_line_state(0, 1, 1)
+        [33, 34, 3, 0, 0, 0, 0, 0]
+
+        >>> set_control_line_state(3, 1, 0)
+        [33, 34, 2, 0, 3, 0, 0, 0]
+
+        >>> set_control_line_state(5, 0, 1)
+        [33, 34, 1, 0, 5, 0, 0, 0]
+    """
+    Type = USBDeviceRequest.Type  # limit verbosity
+    bitmap = rts << 1 | dtr
+    return USBDeviceRequest.build(
+            bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
+            bRequest=CDCRequest.SET_CONTROL_LINE_STATE,
+            wValue=bitmap,
+            wIndex=interface,
+            wLength=0)
+
 
 if __name__ == "__main__":
     import doctest
