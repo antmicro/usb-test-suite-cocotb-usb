@@ -383,7 +383,7 @@ Type = USBDeviceRequest.Type  # limit verbosity
 
 
 class CDCRequest:
-    """Class grouping CDC selected request definitions."""
+    """Class grouping selected CDC request definitions."""
     SEND_ENCAPSULATED_COMMAND = 0x00
     GET_ENCAPSULATED_RESPONSE = 0x01
     SET_COMM_FEATURE = 0x02
@@ -393,6 +393,54 @@ class CDCRequest:
     SET_LINE_CODING = 0x20
     GET_LINE_CODING = 0x21
     SET_CONTROL_LINE_STATE = 0x22
+
+
+def sendEncapsulatedCommand(interface, data_len):
+    """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
+
+    Args:
+        interface (int): Target interface number.
+        data_len (int): Length of data to be transferred.
+
+    .. doctest::
+
+        >>> sendEncapsulatedCommand(
+        ... interface=1,
+        ... data_len=16
+        ... )
+        [33, 0, 0, 0, 1, 0, 16, 0]
+    """
+    return USBDeviceRequest.build(
+            bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
+            bRequest=CDCRequest.SEND_ENCAPSULATED_COMMAND,
+            wValue=0,
+            wIndex=interface,
+            wLength=data_len,
+            )
+
+
+def getEncapsulatedResponse(interface, data_len):
+    """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
+
+    Args:
+        interface (int): Target interface number.
+        data_len (int): Length of data to be received.
+
+    .. doctest::
+
+        >>> getEncapsulatedResponse(
+        ... interface=3,
+        ... data_len=32
+        ... )
+        [161, 1, 0, 0, 3, 0, 32, 0]
+    """
+    return USBDeviceRequest.build(
+            bmRequestType=Type.DEVICE_TO_HOST | Type.CLASS | Type.INTERFACE,
+            bRequest=CDCRequest.GET_ENCAPSULATED_RESPONSE,
+            wValue=0,
+            wIndex=interface,
+            wLength=data_len,
+            )
 
 
 class LineCodingStructure:
@@ -431,9 +479,23 @@ class LineCodingStructure:
 
     @classmethod
     def size(cls):
+        """
+        >>> LineCodingStructure.size()
+        7
+        """
         return struct.calcsize(cls.FORMAT)
 
     def __bytes__(self):
+        """
+        >>> l = LineCodingStructure(
+        ... dwDTERate=115200,
+        ... bCharFormat=LineCodingStructure.STOP_BITS_1,
+        ... bParityType=LineCodingStructure.PARITY_ODD,
+        ... bDataBits=LineCodingStructure.DATA_BITS_8
+        ... )
+        >>> bytes(l)
+        b'\\x00\\xc2\\x01\\x00\\x00\\x01\\x08'
+        """
         return struct.pack(self.FORMAT,
                            self.dwDTERate,
                            self.bCharFormat,
@@ -441,7 +503,19 @@ class LineCodingStructure:
                            self.bDataBits)
 
     def get(self):
-        """Return structure contents as a list of bytes."""
+        """Return structure contents as a list of bytes.
+
+        .. doctest::
+
+            >>> l = LineCodingStructure(
+            ... dwDTERate=115200,
+            ... bCharFormat=LineCodingStructure.STOP_BITS_1,
+            ... bParityType=LineCodingStructure.PARITY_ODD,
+            ... bDataBits=LineCodingStructure.DATA_BITS_8
+            ... )
+            >>> l.get()
+            [0, 194, 1, 0, 0, 1, 8]
+        """
         return list(bytes(self))
 
 
@@ -452,6 +526,11 @@ def setLineCoding(interface):
     Args:
         interface (int): Target interface number.
         data_len (int): Length of data structure to be transferred.
+
+    .. doctest::
+
+        >>> setLineCoding(interface=5)
+        [33, 32, 0, 0, 5, 0, 7, 0]
     """
     return USBDeviceRequest.build(
             bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
@@ -468,6 +547,11 @@ def getLineCoding(interface):
 
     Args:
         interface (int): Target interface number.
+
+    .. doctest::
+
+        >>> getLineCoding(interface=2)
+        [161, 33, 0, 0, 2, 0, 7, 0]
     """
     return USBDeviceRequest.build(
             bmRequestType=Type.DEVICE_TO_HOST | Type.CLASS | Type.INTERFACE,
@@ -488,13 +572,13 @@ def setControlLineState(interface, rts, dtr):
 
     .. doctest::
 
-        >>> set_control_line_state(0, 1, 1)
+        >>> setControlLineState(0, 1, 1)
         [33, 34, 3, 0, 0, 0, 0, 0]
 
-        >>> set_control_line_state(3, 1, 0)
+        >>> setControlLineState(3, 1, 0)
         [33, 34, 2, 0, 3, 0, 0, 0]
 
-        >>> set_control_line_state(5, 0, 1)
+        >>> setControlLineState(5, 0, 1)
         [33, 34, 1, 0, 5, 0, 0, 0]
     """
     bitmap = rts << 1 | dtr
