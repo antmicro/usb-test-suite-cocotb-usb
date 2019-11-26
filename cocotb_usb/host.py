@@ -316,8 +316,8 @@ class UsbTest:
                              ep,
                              data,
                              chunk_size=64,
+                             datax=PID.DATA0,
                              expected=PID.ACK):
-        datax = PID.DATA1
 
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to device".format(
@@ -413,7 +413,11 @@ class UsbTest:
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")
-            yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
+            yield self.transaction_data_out(
+                    addr,
+                    epaddr_out,
+                    descriptor_data,
+                    datax=PID.DATA1)
             yield RisingEdge(self.dut.clk48_host)
 
         # Status stage
