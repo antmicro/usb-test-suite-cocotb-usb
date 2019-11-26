@@ -179,8 +179,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_send_token_packet(self, pid, addr, ep):
-        epnum = EndpointType.epnum(ep)
-        yield self._host_send_packet(token_packet(pid, addr, epnum))
+        yield self._host_send_packet(token_packet(pid, addr, ep))
 
     @cocotb.coroutine
     def host_send_data_packet(self, pid, data):
@@ -318,7 +317,6 @@ class UsbTest:
                              data,
                              chunk_size=64,
                              expected=PID.ACK):
-        epnum = EndpointType.epnum(ep)
         datax = PID.DATA1
 
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
@@ -327,7 +325,7 @@ class UsbTest:
             self.packet_deadline = (get_sim_time("us") +
                                     self.MAX_DATA_PACKET_TIME)
             xmit = cocotb.fork(
-                self.host_send(datax, addr, epnum, chunk, expected))
+                self.host_send(datax, addr, ep, chunk, expected))
             yield xmit.join()
 
     @cocotb.coroutine
