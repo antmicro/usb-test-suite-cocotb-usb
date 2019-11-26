@@ -441,7 +441,7 @@ class LineCodingStructure:
         return list(bytes(self))
 
 
-def set_line_coding(interface, data_rate, stop_bits, parity, data_bits):
+def setLineCoding(interface):
     """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
     See LineCodingStructure for defined parameters.
 
@@ -463,7 +463,7 @@ def set_line_coding(interface, data_rate, stop_bits, parity, data_bits):
             ) + line_coding.get()
 
 
-def get_line_coding(interface):
+def getLineCoding(interface):
     """Return a byte list corresponding to a GET_CONTROL_LINE_STATE request.
     See LineCodingStructure for defined parameters.
 
@@ -480,7 +480,7 @@ def get_line_coding(interface):
             )
 
 
-def set_control_line_state(interface, rts, dtr):
+def setControlLineState(interface, rts, dtr):
     """Return a byte list corresponding to a SET_CONTROL_LINE_STATE request.
 
     Args:
