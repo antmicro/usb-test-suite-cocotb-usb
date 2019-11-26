@@ -378,6 +378,10 @@ cdcParsers = {Descriptor.Types.CLASS_SPECIFIC_INTERFACE: parseCDC,
               # CDC.Type.Data uses standard endpoints
               }
 
+
+Type = USBDeviceRequest.Type  # limit verbosity
+
+
 class CDCRequest:
     """Class grouping CDC selected request definitions."""
     SEND_ENCAPSULATED_COMMAND = 0x00
@@ -447,20 +451,15 @@ def setLineCoding(interface):
 
     Args:
         interface (int): Target interface number.
-        data_rate (int): Data terminal rate, in bits per second.
-        stop_bits (int): How many stop bits to use.
-        parity (int): Parity type.
-        data_bits (int): How many data bits are used.
+        data_len (int): Length of data structure to be transferred.
     """
-    Type = USBDeviceRequest.Type  # limit verbosity
-    line_coding = LineCodingStructure(data_rate, stop_bits, parity, data_bits)
     return USBDeviceRequest.build(
             bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
             bRequest=CDCRequest.SET_LINE_CODING,
             wValue=0,
             wIndex=interface,
-            wLength=line_coding.size(),
-            ) + line_coding.get()
+            wLength=LineCodingStructure.size(),
+            )
 
 
 def getLineCoding(interface):
@@ -470,7 +469,6 @@ def getLineCoding(interface):
     Args:
         interface (int): Target interface number.
     """
-    Type = USBDeviceRequest.Type  # limit verbosity
     return USBDeviceRequest.build(
             bmRequestType=Type.DEVICE_TO_HOST | Type.CLASS | Type.INTERFACE,
             bRequest=CDCRequest.GET_LINE_CODING,
@@ -499,7 +497,6 @@ def setControlLineState(interface, rts, dtr):
         >>> set_control_line_state(5, 0, 1)
         [33, 34, 1, 0, 5, 0, 0, 0]
     """
-    Type = USBDeviceRequest.Type  # limit verbosity
     bitmap = rts << 1 | dtr
     return USBDeviceRequest.build(
             bmRequestType=Type.HOST_TO_DEVICE | Type.CLASS | Type.INTERFACE,
