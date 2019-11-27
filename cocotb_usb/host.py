@@ -179,8 +179,7 @@ class UsbTest:
 
     @cocotb.coroutine
     def host_send_token_packet(self, pid, addr, ep):
-        epnum = EndpointType.epnum(ep)
-        yield self._host_send_packet(token_packet(pid, addr, epnum))
+        yield self._host_send_packet(token_packet(pid, addr, ep))
 
     @cocotb.coroutine
     def host_send_data_packet(self, pid, data):
@@ -317,9 +316,8 @@ class UsbTest:
                              ep,
                              data,
                              chunk_size=64,
+                             datax=PID.DATA0,
                              expected=PID.ACK):
-        epnum = EndpointType.epnum(ep)
-        datax = PID.DATA1
 
         for _i, chunk in enumerate(grouper_tofit(chunk_size, data)):
             self.dut._log.warning("Sending {} bytes to device".format(
@@ -327,7 +325,7 @@ class UsbTest:
             self.packet_deadline = (get_sim_time("us") +
                                     self.MAX_DATA_PACKET_TIME)
             xmit = cocotb.fork(
-                self.host_send(datax, addr, epnum, chunk, expected))
+                self.host_send(datax, addr, ep, chunk, expected))
             yield xmit.join()
 
     @cocotb.coroutine
@@ -415,7 +413,11 @@ class UsbTest:
         # Data stage
         if descriptor_data is not None:
             self.dut._log.info("data stage")
-            yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
+            yield self.transaction_data_out(
+                    addr,
+                    epaddr_out,
+                    descriptor_data,
+                    datax=PID.DATA1)
             yield RisingEdge(self.dut.clk48_host)
 
         # Status stage

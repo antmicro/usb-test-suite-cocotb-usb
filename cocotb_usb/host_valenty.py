@@ -326,9 +326,6 @@ class UsbTestValenty(UsbTest):
                 "was specified"
             )
         if descriptor_data is not None:
-            yield self.host_send_token_packet(PID.OUT, 0, 0)
-            yield self.host_send_data_packet(PID.DATA1, descriptor_data[:64])
-            yield self.host_expect_nak()
             self.dut._log.info("data stage")
             yield self.transaction_data_out(addr, epaddr_out, descriptor_data)
 
