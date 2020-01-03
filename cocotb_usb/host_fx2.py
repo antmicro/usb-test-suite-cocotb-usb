@@ -12,10 +12,13 @@ class CSRs:
     class WishboneProxy:
         def __init__(self, wb, adr):
             self.wb = wb
-            self.adr = adr
+            # work around WishboneMaster performing bit shift required by Litex
+            # FX2 wishbone uses full addresses as it can address any byte
+            self.adr = adr << 2
 
         @cocotb.coroutine
         def write(self, value):
+            __import__('pprint').pprint(f'write adr: 0x{self.adr:04x}')
             yield self.wb.write(self.adr, value)
 
         @cocotb.coroutine
@@ -23,9 +26,9 @@ class CSRs:
             value = yield self.wb.read(self.adr)
             raise ReturnValue(value)
 
-    def __init__(self, csrs, wishbone):
-        self.wb = wishbone
+    def __init__(self, csrs, wb):
         self.csrs = csrs
+        self.wb = wb
 
     def __getattr__(self, name):
         adr = self.__dict__['csrs'][name]
@@ -51,18 +54,31 @@ class UsbTestFX2(UsbTest):
         self.csrs = CSRs(parse_csr(csr_file), self.wb)
 
     @cocotb.coroutine
+    def wait_cpu(self, clocks):
+        yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks, rising=True)
+
+    @cocotb.coroutine
     def reset(self):
         self.dut.reset = 1
         yield ClockCycles(self.dut.clk, 10, rising=True)
         self.dut.reset = 0
         yield ClockCycles(self.dut.clk, 10, rising=True)
 
+        yield self.wait_cpu(100)
 
-        yield ClockCycles(self.dut.clk, 10000, rising=True)
+        cpuspd_choices = [0b00, 0b01, 0b10]
+        for i in range(3):
+            for cpuspd in cpuspd_choices:
+                cpucs = cpuspd << 3
+                self.dut._log.info('Setting CPUSPD = %d (CPUCS = 0x%02x)' % (cpuspd, cpucs))
+                yield self.csrs.cpucs.write(cpucs)
 
-        val = yield self.csrs.cpucs.read()
-        print(f'val = 0x{val:02x}')
-        for i in range(10):
-            yield self.csrs.cpucs.write(i)
-            val = yield self.csrs.cpucs.read()
-            print(f'val = 0x{val:02x}')
+                yield self.wait_cpu(100)
+
+                cpucs = yield self.csrs.cpucs.read()
+                cpuspd = (cpucs >> 3) & 0b11
+                self.dut._log.info('Read    CPUSPD = %d (CPUCS = 0x%02x)' % (cpuspd, cpucs))
+
+                yield self.wait_cpu(100)
+
+        import sys; sys.exit(0)
