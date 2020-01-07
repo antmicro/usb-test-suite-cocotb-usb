@@ -1,7 +1,10 @@
+from collections import namedtuple
+
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Timer, ClockCycles
+from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles
 from cocotb.result import ReturnValue
+from cocotb.monitors import BusMonitor
 
 from cocotb_usb.wishbone import WishboneMaster
 from cocotb_usb.host import UsbTest
@@ -18,7 +21,6 @@ class CSRs:
 
         @cocotb.coroutine
         def write(self, value):
-            __import__('pprint').pprint(f'write adr: 0x{self.adr:04x}')
             yield self.wb.write(self.adr, value)
 
         @cocotb.coroutine
@@ -36,6 +38,48 @@ class CSRs:
         return self.WishboneProxy(wb, adr)
 
 
+class RegisterAccessMonitor(BusMonitor):
+    """
+    Monitors wishbone bus for access to registers in given address ranges.
+
+    Args:
+        address_ranges: list of tuples (address_min, address_max), inclusive
+    """
+
+    RegisterAccess = namedtuple('RegisterAccess', ['adr', 'dat_r', 'dat_w', 'we'])
+
+    def __init__(self, dut, address_ranges, *args, **kwargs):
+        self.address_ranges = address_ranges
+        self.dut = dut
+        super().__init__(*[dut, *args], **kwargs)
+
+        self.wb_adr = self.dut.wishbone_cpu_adr
+        self.wb_dat_r = self.dut.wishbone_cpu_dat_r
+        self.wb_dat_w = self.dut.wishbone_cpu_dat_r
+        self.wb_we = self.dut.wishbone_cpu_we
+        self.wb_cyc = self.dut.wishbone_cpu_cyc
+        self.wb_stb = self.dut.wishbone_cpu_stb
+        self.wb_ack = self.dut.wishbone_cpu_ack
+
+    @cocotb.coroutine
+    def _monitor_recv(self):
+        yield FallingEdge(self.dut.reset)
+
+        while True:
+            yield RisingEdge(self.clock)
+
+            if self.wb_cyc == 1 and self.wb_stb == 1 and self.wb_ack == 1:
+                adr, dat_r, dat_w, we = map(int, (self.wb_adr, self.wb_dat_r, self.wb_dat_w, self.wb_we))
+                if self.is_monitored_address(adr):
+                    self._recv(self.RegisterAccess(adr, dat_r, dat_w, we))
+
+    def is_monitored_address(self, adr):
+        for adr_min, adr_max in self.address_ranges:
+            if adr_min <= adr <= adr_max:
+                return True
+        return False
+
+
 class UsbTestFX2(UsbTest):
     """
     Host implementation for FX2 USB tests.
@@ -45,13 +89,21 @@ class UsbTestFX2(UsbTest):
     """
     def __init__(self, dut, csr_file, **kwargs):
         self.dut = dut
-        #  super().__init__(dut, **kwargs)
-        self.clock_period = 20830
 
+        self.clock_period = 20830  # ps, ~48MHz
         cocotb.fork(Clock(dut.clk, self.clock_period, 'ps').start())
 
         self.wb = WishboneMaster(dut, "wishbone", dut.clk, timeout=20)
         self.csrs = CSRs(parse_csr(csr_file), self.wb)
+
+        usb_adr_ranges = [
+            (0xe500, 0xe6ff),
+            (0xe740, 0xe7ff),
+            (0xf000, 0xffff),
+        ]
+        self.monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
+                                             name='wishbone', clock=dut.dut.sys_clk,
+                                             callback=lambda rec: print('Rec: ', rec))
 
     @cocotb.coroutine
     def wait_cpu(self, clocks):
