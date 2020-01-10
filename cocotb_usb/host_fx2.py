@@ -1,14 +1,24 @@
+import enum
 from collections import namedtuple
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles
+from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles, NullTrigger
 from cocotb.result import ReturnValue
 from cocotb.monitors import BusMonitor
+from cocotb.utils import get_sim_time
+
+from cocotb_usb.usb.pid import PID
+from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
+                                   sof_packet, handshake_packet)
+from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.wishbone import WishboneMaster
 from cocotb_usb.host import UsbTest
-from cocotb_usb.utils import parse_csr
+from cocotb_usb.utils import parse_csr, assertEqual
+from cocotb_usb import usb
+
+from cocotb_usb.usb_decoder import decode_packet
 
 
 class CSRs:
@@ -80,6 +90,117 @@ class RegisterAccessMonitor(BusMonitor):
         return False
 
 
+class FX2USB:
+    # implements FX2 USB peripheral outside of the simulation
+
+    class IRQ(enum.IntEnum):
+        SUDAV = 1
+        SOF = 2
+        SUTOK = 3
+
+    class TState(enum.Enum):
+        # each transaction (except isosynchronous transfers) has 3 steps,
+        # first one is always sent by host
+        # read the values as "waiting for X", so TOKEN can be interpreted as idle state
+        TOKEN = 1
+        DATA = 2
+        HANDSHAKE = 3
+
+    def __init__(self, reg_monitor, fx2_csrs, wb_dbus):
+        self.monitor = reg_monitor
+        self.csrs = fx2_csrs
+        self.dbus = wb_dbus
+
+        self.monitor.add_callback(self.monitor_handler)
+        self.reset_state()
+
+    def reset_state(self):
+        self.tstate = self.TState.TOKEN
+        # store previous packets of a transaction between invocations
+        self.token_packet = None
+        self.data_packet = None
+
+    @cocotb.coroutine
+    def monitor_handler(self, reg_access):
+        print('USB access:', reg_access)
+        yield ClockCycles(self.dbus.clk, 0)
+
+    #  @cocotb.coroutine
+    def handle_token(self, p):
+        # it always comes from host
+        if p.pid == PID.SETUP:
+            pass
+
+    #  @cocotb.coroutine
+    def handle_data(self, p):
+        pass
+
+    #  @cocotb.coroutine
+    def handle_handshake(self, p):
+        pass
+
+    @cocotb.coroutine
+    def handle_sof(self, p):
+        # update USBFRAMEH:L (FIXME: should also be incremented on missing/garbled frames, see docs)
+        frameh, framel = ((p.framenum & 0xff00) >> 8), (p.framenum & 0xff)
+        print('time us: ', get_sim_time('us'))
+        yield self.csrs.usbframeh.write(frameh)
+        print('WRITE: ', frameh)
+        yield self.csrs.usbframel.write(framel)
+        print('WRITE: ', framel)
+        # generate interrupt
+        yield self.assert_interrupt(self.IRQ.SOF)
+
+    @cocotb.coroutine
+    def receive_host_packet(self, packet):
+        p = decode_packet(packet)
+        print('p =', end=' '); __import__('pprint').pprint(p)
+
+        # check packet category and decide wheather it is correct for the current state
+        if p.category == 'TOKEN':
+            # handle SOF as it is only the token
+            if p.pid == PID.SOF:
+                yield self.handle_sof(p)
+                return
+
+            if self.tstate != self.TState.TOKEN:
+                raise Exception('received %s token in state %s' % (p.pid, self.tstate))
+
+            self.handle_token(p)
+            print('State: %s -> %s' % (self.tstate, self.TState.DATA))
+            self.tstate = self.TState.DATA
+
+        elif p.category == 'DATA':
+            if self.tstate != self.TState.DATA:
+                raise Exception('received %s token in state %s' % (p.pid, self.tstate))
+
+            self.handle_data(p)
+            print('State: %s -> %s' % (self.tstate, self.TState.HANDSHAKE))
+            self.tstate = self.TState.HANDSHAKE
+
+        elif p.category == 'HANDSHAKE':
+            if self.tstate != self.TState.HANDSHAKE:
+                raise Exception('received %s token in state %s' % (p.pid, self.tstate))
+
+            self.handle_handshake(p)
+            print('State: %s -> %s' % (self.tstate, self.TState.TOKEN))
+            self.reset_state()
+        else:
+            raise NotImplementedError('Received unhandled %s token in state %s' % (p.pid, self.tstate))
+
+
+    @cocotb.coroutine
+    def expect_device_packet(self, timeout):
+        yield NullTrigger()
+        #  raise ReturnValue(handshake_packet(PID.NAK))
+        raise ReturnValue(handshake_packet(PID.STALL))
+
+    @cocotb.coroutine
+    def assert_interrupt(self, irq):
+        print('FX2 interrupt: ', irq)
+        yield NullTrigger()
+
+
 class UsbTestFX2(UsbTest):
     """
     Host implementation for FX2 USB tests.
@@ -101,36 +222,72 @@ class UsbTestFX2(UsbTest):
             (0xe740, 0xe7ff),
             (0xf000, 0xffff),
         ]
-        self.monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
-                                             name='wishbone', clock=dut.dut.sys_clk,
-                                             callback=lambda rec: print('Rec: ', rec))
+        self.fx2_monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
+                                                 name='wishbone', clock=dut.dut.sys_clk,
+                                                 callback=lambda rec: print('Rec: ', rec))
+        self.fx2_usb = FX2USB(self.fx2_monitor, self.csrs, self.wb)
 
     @cocotb.coroutine
     def wait_cpu(self, clocks):
         yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks, rising=True)
 
+    #  @cocotb.coroutine
+    #  def wait(self, time, units="us"):
+    #      yield NullTrigger()
+
     @cocotb.coroutine
     def reset(self):
+        self.address = 0
         self.dut.reset = 1
         yield ClockCycles(self.dut.clk, 10, rising=True)
         self.dut.reset = 0
         yield ClockCycles(self.dut.clk, 10, rising=True)
 
-        yield self.wait_cpu(100)
+    @cocotb.coroutine
+    def port_reset(self, time=10e3, recover=False):
+        yield NullTrigger()
 
-        cpuspd_choices = [0b00, 0b01, 0b10]
-        for i in range(3):
-            for cpuspd in cpuspd_choices:
-                cpucs = cpuspd << 3
-                self.dut._log.info('Setting CPUSPD = %d (CPUCS = 0x%02x)' % (cpuspd, cpucs))
-                yield self.csrs.cpucs.write(cpucs)
+        self.dut._log.info("[Resetting port for {} us]".format(time))
 
-                yield self.wait_cpu(100)
+        #  yield self.wait(time, "us")
+        yield self.wait(1, "us")
+        self.connect()
+        if recover:
+            #  yield self.wait(1e4, "us")
+            yield self.wait(1, "us")
 
-                cpucs = yield self.csrs.cpucs.read()
-                cpuspd = (cpucs >> 3) & 0b11
-                self.dut._log.info('Read    CPUSPD = %d (CPUCS = 0x%02x)' % (cpuspd, cpucs))
+    @cocotb.coroutine
+    def connect(self):
+        yield NullTrigger()
 
-                yield self.wait_cpu(100)
+    @cocotb.coroutine
+    def disconnect(self):
+        """Simulate device disconnect, both lines pulled low."""
+        yield NullTrigger()
+        self.address = 0
 
-        import sys; sys.exit(0)
+    # Host->Device
+    @cocotb.coroutine
+    def _host_send_packet(self, packet):
+        yield self.fx2_usb.receive_host_packet(packet)
+
+    # Device->Host
+    @cocotb.coroutine
+    def host_expect_packet(self, packet, msg=None):
+        result = yield self.fx2_usb.expect_device_packet(timeout=1e9) # 1ms max
+
+        if result is None:
+            current = get_sim_time("us")
+            raise TestFailure(f"No full packet received @{current}")
+
+        # Check the packet received matches
+        expected = pp_packet(wrap_packet(packet))
+        actual = pp_packet(wrap_packet(result))
+        nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
+        if (actual == nak) and (expected != nak):
+            self.dut._log.warn("Got NAK, retry")
+            yield Timer(self.RETRY_INTERVAL, 'us')
+            return
+        else:
+            self.retry = False
+            assertEqual(expected, actual, msg)
