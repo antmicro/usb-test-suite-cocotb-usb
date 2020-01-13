@@ -51,7 +51,7 @@ def decode_packet(packet):
             # Bits[16:22]: Addr
             decoded.addr = bitstr_to_num(packet[16:22 + 1])
             # Bits[23:26]: EP
-            decoded.ep = bitstr_to_num(packet[23:26 + 1])
+            decoded.endp = bitstr_to_num(packet[23:26 + 1])
         # Bits[27:31]: CRC5
         decoded.crc5 = bitstr_to_num(packet[27:31 + 1])
 
