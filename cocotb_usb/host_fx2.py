@@ -31,11 +31,13 @@ class CSRs:
 
         @cocotb.coroutine
         def write(self, value):
+            print('CSR WRITE: 0x%02x @0x%04x' % (self.adr >> 2, value))
             yield self.wb.write(self.adr, value)
 
         @cocotb.coroutine
         def read(self):
             value = yield self.wb.read(self.adr)
+            print('CSR READ: 0x%02x @0x%04x' % (value, self.adr >> 2))
             raise ReturnValue(value)
 
     def __init__(self, csrs, wb):
@@ -92,6 +94,7 @@ class RegisterAccessMonitor(BusMonitor):
 
 class FX2USB:
     # implements FX2 USB peripheral outside of the simulation
+    # TODO: CRC checks
 
     class IRQ(enum.IntEnum):
         SUDAV = 1
@@ -106,6 +109,10 @@ class FX2USB:
         DATA = 2
         HANDSHAKE = 3
 
+    #  class TDir(enum.Enum):
+    #      OUT = 1  # host -> dev
+    #      IN = 2   # dev -> host
+
     def __init__(self, reg_monitor, fx2_csrs, wb_dbus):
         self.monitor = reg_monitor
         self.csrs = fx2_csrs
@@ -115,6 +122,7 @@ class FX2USB:
         self.reset_state()
 
     def reset_state(self):
+        # host always starts transactions
         self.tstate = self.TState.TOKEN
         # store previous packets of a transaction between invocations
         self.token_packet = None
@@ -125,19 +133,39 @@ class FX2USB:
         print('USB access:', reg_access)
         yield ClockCycles(self.dbus.clk, 0)
 
-    #  @cocotb.coroutine
+    @cocotb.coroutine
     def handle_token(self, p):
+        # TODO: handle addr/endp token fields
         # it always comes from host
         if p.pid == PID.SETUP:
-            pass
+            self.token_packet = p
+            # interrupt generated after successful SETUP packet
+            yield self.assert_interrupt(self.IRQ.SUTOK)
+            # clear busy and stall bits, TODO: do this without writing data bus? or at least hold cpu clock?
+            ep0cs = yield self.csrs.ep0cs.read()
+            yield self.csrs.ep0cs.write(ep0cs & (~0b11))
+        else:
+            self.reset_state()
 
-    #  @cocotb.coroutine
+    @cocotb.coroutine
     def handle_data(self, p):
-        pass
+        assert self.token_packet
+        yield NullTrigger()
 
-    #  @cocotb.coroutine
+        tp = self.token_packet
+        if tp.pid == PID.SETUP and tp.endp == 0:
+            self.data_packet = p
+            # copy data to SETUPDAT
+            for i, b in enumerate(p.data):
+                yield getattr(self.csrs, "setupdat%d" % i).write(b)
+            yield self.assert_interrupt(self.IRQ.SUDAV)
+            # now firmware should ack/stall EP0 (EP0CS)
+
+    @cocotb.coroutine
     def handle_handshake(self, p):
-        pass
+        assert self.token_packet
+        assert self.data_packet
+        yield NullTrigger()
 
     @cocotb.coroutine
     def handle_sof(self, p):
@@ -145,11 +173,10 @@ class FX2USB:
         frameh, framel = ((p.framenum & 0xff00) >> 8), (p.framenum & 0xff)
         print('time us: ', get_sim_time('us'))
         yield self.csrs.usbframeh.write(frameh)
-        print('WRITE: ', frameh)
         yield self.csrs.usbframel.write(framel)
-        print('WRITE: ', framel)
         # generate interrupt
         yield self.assert_interrupt(self.IRQ.SOF)
+
 
     @cocotb.coroutine
     def receive_host_packet(self, packet):
@@ -166,7 +193,7 @@ class FX2USB:
             if self.tstate != self.TState.TOKEN:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            self.handle_token(p)
+            yield self.handle_token(p)
             print('State: %s -> %s' % (self.tstate, self.TState.DATA))
             self.tstate = self.TState.DATA
 
@@ -174,7 +201,7 @@ class FX2USB:
             if self.tstate != self.TState.DATA:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            self.handle_data(p)
+            yield self.handle_data(p)
             print('State: %s -> %s' % (self.tstate, self.TState.HANDSHAKE))
             self.tstate = self.TState.HANDSHAKE
 
@@ -182,7 +209,7 @@ class FX2USB:
             if self.tstate != self.TState.HANDSHAKE:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            self.handle_handshake(p)
+            yield self.handle_handshake(p)
             print('State: %s -> %s' % (self.tstate, self.TState.TOKEN))
             self.reset_state()
         else:
@@ -192,13 +219,19 @@ class FX2USB:
     @cocotb.coroutine
     def expect_device_packet(self, timeout):
         yield NullTrigger()
-        #  raise ReturnValue(handshake_packet(PID.NAK))
-        raise ReturnValue(handshake_packet(PID.STALL))
+        raise ReturnValue(handshake_packet(PID.NAK))
+        #  raise ReturnValue(handshake_packet(PID.STALL))
 
     @cocotb.coroutine
     def assert_interrupt(self, irq):
         print('FX2 interrupt: ', irq)
-        yield NullTrigger()
+        usbirq = yield self.csrs.usbirq.read()
+        if irq == self.IRQ.SUDAV:
+            yield self.csrs.usbirq.write(usbirq | (1 << 0))
+        elif irq == self.IRQ.SOF:
+            yield self.csrs.usbirq.write(usbirq | (1 << 1))
+        elif irq == self.IRQ.SUTOK:
+            yield self.csrs.usbirq.write(usbirq | (1 << 2))
 
 
 class UsbTestFX2(UsbTest):
