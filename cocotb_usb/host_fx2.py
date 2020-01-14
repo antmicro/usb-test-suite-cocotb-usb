@@ -71,9 +71,13 @@ class FX2USB:
     # TODO: CRC checks
 
     class IRQ(enum.IntEnum):
-        SUDAV = 1
-        SOF = 2
-        SUTOK = 3
+        SUDAV = 0
+        SOF = 1
+        SUTOK = 2
+        SUSP = 3
+        URES = 4
+        HSGRANT = 5
+        EP01ACK = 6
 
     class TState(enum.Enum):
         # each transaction (except isosynchronous transfers) has 3 steps,
@@ -217,12 +221,10 @@ class FX2USB:
 
     def assert_interrupt(self, irq):
         print('FX2 interrupt: ', irq)
-        if irq == self.IRQ.SUDAV:
-            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 0)
-        elif irq == self.IRQ.SOF:
-            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 1)
-        elif irq == self.IRQ.SUTOK:
-            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 2)
+        if irq in self.IRQ and 0 <= irq <= 6:
+            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << irq)
+        else:
+            raise NotImplementedError('Unexpected IRQ: %s' % irq)
 
 
 class UsbTestFX2(UsbTest):
