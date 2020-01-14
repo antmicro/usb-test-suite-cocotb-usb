@@ -15,43 +15,10 @@ from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.wishbone import WishboneMaster
 from cocotb_usb.host import UsbTest
-from cocotb_usb.utils import parse_csr, assertEqual
+from cocotb_usb.utils import assertEqual
 from cocotb_usb import usb
 
 from cocotb_usb.usb_decoder import decode_packet
-
-
-class CSRs:
-    DEBUG = True
-
-    class WishboneProxy:
-        def __init__(self, wb, adr):
-            self.wb = wb
-            # work around WishboneMaster performing bit shift required by Litex
-            # FX2 wishbone uses full addresses as it can address any byte
-            self.adr = adr << 2
-
-        @cocotb.coroutine
-        def write(self, value):
-            if CSRs.DEBUG:
-                print('CSR WRITE: 0x%02x @0x%04x' % (value, self.adr >> 2))
-            yield self.wb.write(self.adr, value)
-
-        @cocotb.coroutine
-        def read(self):
-            value = yield self.wb.read(self.adr)
-            if CSRs.DEBUG:
-                print('CSR READ: 0x%02x @0x%04x' % (value, self.adr >> 2))
-            raise ReturnValue(value)
-
-    def __init__(self, csrs, wb):
-        self.csrs = csrs
-        self.wb = wb
-
-    def __getattr__(self, name):
-        adr = self.__dict__['csrs'][name]
-        wb = self.__dict__['wb']
-        return self.WishboneProxy(wb, adr)
 
 
 class RegisterAccessMonitor(BusMonitor):
@@ -120,12 +87,21 @@ class FX2USB:
     #      OUT = 1  # host -> dev
     #      IN = 2   # dev -> host
 
-    def __init__(self, reg_monitor, fx2_csrs, wb_dbus):
-        self.monitor = reg_monitor
-        self.csrs = fx2_csrs
-        self.dbus = wb_dbus
+    def __init__(self, dut):
+        """
+        dut: the actual dut from dut.v (not tb.v)
+        """
+        self.dut = dut
 
-        #  self.monitor.add_callback(self.monitor_handler)
+        usb_adr_ranges = [
+            (0xe500, 0xe6ff),
+            (0xe740, 0xe7ff),
+            (0xf000, 0xffff),
+        ]
+        self.monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
+                                             name='wishbone', clock=dut.sys_clk)
+
+        self.monitor.add_callback(self.monitor_handler)
         self.reset_state()
 
     def reset_state(self):
@@ -135,12 +111,11 @@ class FX2USB:
         self.token_packet = None
         self.data_packet = None
 
-    #  @cocotb.coroutine
-    #  def monitor_handler(self, reg_access):
-    #      #  print('USB access:', reg_access)
-    #      yield ClockCycles(self.dbus.clk, 0)
-
     @cocotb.coroutine
+    def monitor_handler(self, reg_access):
+        print('USB access:', reg_access)
+        yield ClockCycles(self.dbus.clk, 0)
+
     def handle_token(self, p):
         # TODO: handle addr/endp token fields
         # it always comes from host
@@ -148,10 +123,10 @@ class FX2USB:
         if p.pid == PID.SOF:
             # update USBFRAMEH:L (FIXME: should also be incremented on missing/garbled frames, see docs)
             frameh, framel = ((p.framenum & 0xff00) >> 8), (p.framenum & 0xff)
-            yield self.csrs.usbframeh.write(frameh)
-            yield self.csrs.usbframel.write(framel)
+            self.dut.fx2csr_usbframeh = frameh
+            self.dut.fx2csr_usbframel = framel
             # generate interrupt
-            yield self.assert_interrupt(self.IRQ.SOF)
+            self.assert_interrupt(self.IRQ.SOF)
             # no data/handshake
             self.reset_state()
             return True
@@ -159,16 +134,14 @@ class FX2USB:
         elif p.pid == PID.SETUP:
             self.token_packet = p
             # interrupt generated after successful SETUP packet
-            yield self.assert_interrupt(self.IRQ.SUTOK)
+            self.assert_interrupt(self.IRQ.SUTOK)
             # clear hsnak and stall bits, TODO: do this without writing data bus? or at least hold cpu clock?
-            ep0cs = yield self.csrs.ep0cs.read()
-            yield self.csrs.ep0cs.write(ep0cs & (~((1 << 7) | (1 << 0))))
+            self.dut.fx2csr_ep0cs = int(self.dut.fx2csr_ep0cs) & (~((1 << 7) | (1 << 0)))
             self.tstate = self.TState.DATA
             return True
 
         return False
 
-    @cocotb.coroutine
     def handle_data(self, p):
         assert self.token_packet
 
@@ -178,8 +151,8 @@ class FX2USB:
             self.data_packet = p
             # copy data to SETUPDAT
             for i, b in enumerate(p.data):
-                yield getattr(self.csrs, "setupdat%d" % i).write(b)
-            yield self.assert_interrupt(self.IRQ.SUDAV)
+                setattr(self.dut, "fx2csr_setupdat%d" % i, b)
+            self.assert_interrupt(self.IRQ.SUDAV)
             # ack
             self.to_send = handshake_packet(PID.ACK)
             self.reset_state()
@@ -187,11 +160,10 @@ class FX2USB:
 
         return False
 
-    @cocotb.coroutine
     def handle_handshake(self, p):
         assert self.token_packet
         assert self.data_packet
-        yield NullTrigger()
+        #  yield NullTrigger()
 
     @cocotb.coroutine
     def receive_host_packet(self, packet):
@@ -204,25 +176,24 @@ class FX2USB:
             if self.tstate != self.TState.TOKEN:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            ret = yield self.handle_token(p)
-            if not ret:
+            if not self.handle_token(p):
                 self.reset_state() # transactions must be complete, else reset state
         elif p.category == 'DATA':
             if self.tstate != self.TState.DATA:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            ret = yield self.handle_data(p)
-            if not ret:
+            if not self.handle_data(p):
                 self.reset_state() # transactions must be complete, else reset state
         elif p.category == 'HANDSHAKE':
             if self.tstate != self.TState.HANDSHAKE:
                 raise Exception('received %s token in state %s' % (p.pid, self.tstate))
 
-            ret = yield self.handle_handshake(p)
-            if not ret:
+            if not self.handle_handshake(p):
                 self.reset_state() # transactions must be complete, else reset state
         else:
             raise NotImplementedError('Received unhandled %s token in state %s' % (p.pid, self.tstate))
+
+        yield ClockCycles(self.dut.sys_clk, 1)
 
     @cocotb.coroutine
     def expect_device_packet(self, timeout):
@@ -234,16 +205,14 @@ class FX2USB:
         self.to_send = None
         return to_send
 
-    @cocotb.coroutine
     def assert_interrupt(self, irq):
         print('FX2 interrupt: ', irq)
-        usbirq = yield self.csrs.usbirq.read()
         if irq == self.IRQ.SUDAV:
-            yield self.csrs.usbirq.write(usbirq | (1 << 0))
+            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 0)
         elif irq == self.IRQ.SOF:
-            yield self.csrs.usbirq.write(usbirq | (1 << 1))
+            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 1)
         elif irq == self.IRQ.SUTOK:
-            yield self.csrs.usbirq.write(usbirq | (1 << 2))
+            self.dut.fx2csr_usbirq = int(self.dut.fx2csr_usbirq) | (1 << 2)
 
 
 class UsbTestFX2(UsbTest):
@@ -260,25 +229,15 @@ class UsbTestFX2(UsbTest):
         cocotb.fork(Clock(dut.clk, self.clock_period, 'ps').start())
 
         self.wb = WishboneMaster(dut, "wishbone", dut.clk, timeout=20)
-        self.csrs = CSRs(parse_csr(csr_file), self.wb)
-
-        usb_adr_ranges = [
-            (0xe500, 0xe6ff),
-            (0xe740, 0xe7ff),
-            (0xf000, 0xffff),
-        ]
-        self.fx2_monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
-                                                 name='wishbone', clock=dut.dut.sys_clk)
-                                                 #  callback=lambda rec: print('Rec: ', rec))
-        self.fx2_usb = FX2USB(self.fx2_monitor, self.csrs, self.wb)
+        self.fx2_usb = FX2USB(self.dut.dut)
 
     @cocotb.coroutine
     def wait_cpu(self, clocks):
         yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks, rising=True)
 
-    #  @cocotb.coroutine
-    #  def wait(self, time, units="us"):
-    #      yield NullTrigger()
+    @cocotb.coroutine
+    def wait(self, time, units="us"):
+        yield super().wait(time // 10, units=units)
 
     @cocotb.coroutine
     def reset(self):
