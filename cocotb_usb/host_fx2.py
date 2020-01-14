@@ -15,7 +15,7 @@ from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.wishbone import WishboneMaster
 from cocotb_usb.host import UsbTest
-from cocotb_usb.utils import assertEqual
+from cocotb_usb.utils import parse_csr,assertEqual
 from cocotb_usb import usb
 
 from cocotb_usb.usb_decoder import decode_packet
@@ -38,7 +38,7 @@ class RegisterAccessMonitor(BusMonitor):
 
         self.wb_adr = self.dut.wishbone_cpu_adr
         self.wb_dat_r = self.dut.wishbone_cpu_dat_r
-        self.wb_dat_w = self.dut.wishbone_cpu_dat_r
+        self.wb_dat_w = self.dut.wishbone_cpu_dat_w
         self.wb_we = self.dut.wishbone_cpu_we
         self.wb_cyc = self.dut.wishbone_cpu_cyc
         self.wb_stb = self.dut.wishbone_cpu_stb
@@ -87,11 +87,12 @@ class FX2USB:
     #      OUT = 1  # host -> dev
     #      IN = 2   # dev -> host
 
-    def __init__(self, dut):
+    def __init__(self, dut, csrs):
         """
         dut: the actual dut from dut.v (not tb.v)
         """
         self.dut = dut
+        self.csrs = csrs
 
         usb_adr_ranges = [
             (0xe500, 0xe6ff),
@@ -99,9 +100,8 @@ class FX2USB:
             (0xf000, 0xffff),
         ]
         self.monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
-                                             name='wishbone', clock=dut.sys_clk)
-
-        self.monitor.add_callback(self.monitor_handler)
+                                             name='wishbone', clock=dut.sys_clk,
+                                             callback=self.monitor_handler)
         self.reset_state()
 
     def reset_state(self):
@@ -111,10 +111,20 @@ class FX2USB:
         self.token_packet = None
         self.data_packet = None
 
-    @cocotb.coroutine
-    def monitor_handler(self, reg_access):
-        print('USB access:', reg_access)
-        yield ClockCycles(self.dbus.clk, 0)
+    def monitor_handler(self, wb):
+        # clear interrupt flags on writes instead of setting register value
+        clear_on_write_regs = ['ibnirq', 'nakirq', 'usbirq', 'epirp', 'gpifirq',
+                               *('ep%dfifoirq' % i for i in [2, 4, 6, 8])]
+        for reg in clear_on_write_regs:
+            if reg in self.csrs.keys():  # only implemented registers
+                if wb.adr == self.csrs[reg] and wb.we:
+                    # use the value that shows up on read signal as last register value
+                    last_val = wb.dat_r
+                    new_val = last_val & (~wb.dat_w)
+                    # we can set the new value now, as at this moment value from wishbone bus
+                    # has already been written
+                    setattr(self.dut, 'fx2csr_' + reg, new_val)
+
 
     def handle_token(self, p):
         # TODO: handle addr/endp token fields
@@ -229,7 +239,7 @@ class UsbTestFX2(UsbTest):
         cocotb.fork(Clock(dut.clk, self.clock_period, 'ps').start())
 
         self.wb = WishboneMaster(dut, "wishbone", dut.clk, timeout=20)
-        self.fx2_usb = FX2USB(self.dut.dut)
+        self.fx2_usb = FX2USB(self.dut.dut, parse_csr(csr_file))
 
     @cocotb.coroutine
     def wait_cpu(self, clocks):
