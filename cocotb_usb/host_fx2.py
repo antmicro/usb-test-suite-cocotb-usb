@@ -247,11 +247,11 @@ class FX2USB:
             else:
                 # IN can mean STATUS stage on EP0, so send empty packet
                 if self.armed_ep_lengths[0] is None:
-                    self.to_send = data_packet(PID.DATA0, [])
+                    self.to_send = data_packet(PID.DATA1, [])
                 else:
                     assert False, 'payload from ep0!'
                     payload = list(range(self.armed_ep_lengths[0]))
-                    self.to_send = data_packet(PID.DATA0, payload)
+                    self.to_send = data_packet(PID.DATA1, payload)
             return True
         else:
             assert False
