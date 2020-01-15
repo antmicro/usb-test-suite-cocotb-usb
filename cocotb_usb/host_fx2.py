@@ -177,19 +177,6 @@ class FX2USB:
                     # has already been written
                     self.set_csr(reg, bitupdate(last_val, clear=wb.dat_w))
 
-        if wb.adr == self.csrs['ep0cs'] and wb.we:
-            hsnak = 7
-            busy  = 1
-            stall = 0
-            last_val = wb.dat_r
-
-            if testbit(wb.dat_w, hsnak): # clear on write
-                last_val = bitupdate(last_val, clearbits=[hsnak])
-            if testbit(wb.dat_w, stall): # normal on write
-                last_val = bitupdate(last_val, setbits=[stall])
-            # ignore any writes to busy bits
-            self.set_csr('ep0cs', last_val)
-
         # endpoint arming
         ep_len = lambda prefix: word(self.get_csr(prefix + 'h'), self.get_csr(prefix + 'l'))
         if wb.adr == self.csrs['ep0bcl']:
