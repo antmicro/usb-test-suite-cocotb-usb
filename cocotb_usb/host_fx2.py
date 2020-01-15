@@ -292,11 +292,14 @@ class FX2USB:
         if tp.pid == PID.SETUP:
             if p.pid == PID.DATA0 and tp.endp == 0:
                 self.data_packet = p
-                # copy data to SETUPDAT
-                for i, b in enumerate(p.data):
-                    self.set_csr('setupdat%d' % i, b)
+                # construct a SETUPDAT 64-bit value:
+                # (!) litex generates names with revesed numbers:
+                #   FX2 SETUPDAT[0] = setupdat7_w = fx2csr_setupdat[63:56]
+                setupdat = [b << (8 * i) for i, b in enumerate(reversed(p.data))]
+                setupdat64 = reduce(lambda acc, b: acc | b, setupdat)
+                self.set_csr('setupdat', setupdat64, immediate=True)
+                # interrupt and acknowledge
                 self.assert_interrupt(self.IRQ.SUDAV)
-                # send acknowledge
                 self.to_send = handshake_packet(PID.ACK)
                 return True
             else:
