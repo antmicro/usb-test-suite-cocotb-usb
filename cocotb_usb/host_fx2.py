@@ -423,9 +423,9 @@ class UsbTestFX2(UsbTest):
     def reset(self):
         self.address = 0
         self.dut.reset = 1
-        yield ClockCycles(self.dut.clk, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
         self.dut.reset = 0
-        yield ClockCycles(self.dut.clk, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
 
     @cocotb.coroutine
     def port_reset(self, time=10e3, recover=False):
@@ -465,6 +465,8 @@ class UsbTestFX2(UsbTest):
         if result is None:
             current = get_sim_time("us")
             raise TestFailure(f"No full packet received @{current}")
+
+        yield RisingEdge(self.dut.clk48_host)
 
         # Check the packet received matches
         expected = pp_packet(wrap_packet(packet))
