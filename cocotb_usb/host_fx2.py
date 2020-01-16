@@ -20,6 +20,15 @@ from cocotb_usb.utils import parse_csr,assertEqual
 from cocotb_usb import usb
 
 from cocotb_usb.usb_decoder import decode_packet
+from cocotb_usb.state_machine import StateMachine
+
+
+def _dbg(*args):
+    bold_white = '\033[1;37m'
+    clear = '\033[0m'
+    print(bold_white + '  ', end='')
+    print(args[0], end=clear)
+    print('', *args[1:])
 
 
 class RegisterAccessMonitor(BusMonitor):
@@ -69,19 +78,19 @@ class RegisterAccessMonitor(BusMonitor):
         return False
 
 def bit(n):
-    return 1 << n
+    return 1 << int(n)
 
 def testbit(val, n):
-    return (val & bit(n)) != 0
+    return (int(val) & bit(n)) != 0
 
 def msb(word):
-    return (0xff00 & word) >> 8
+    return (0xff00 & int(word)) >> 8
 
 def lsb(word):
-    return 0xff & word
+    return 0xff & int(word)
 
 def word(msb, lsb):
-    return ((msb & 0xff) << 8) | (lsb & 0xff)
+    return ((int(msb) & 0xff) << 8) | (int(lsb) & 0xff)
 
 
 def bitupdate(reg, *, set=None, clear=None, clearbits=None, setbits=None):
@@ -113,6 +122,16 @@ def bitupdate(reg, *, set=None, clear=None, clearbits=None, setbits=None):
     return reg
 
 
+def ep2toggle_index(ep, io=0):
+    """Get index of data toggle bit for given endpoint and direction."""
+    if ep == 0:
+        return 0
+    elif ep == 1:
+        return 1 + io
+    else:
+        return ep // 2 + 2  # 3-6
+
+
 class FX2USB:
     # implements FX2 USB peripheral outside of the simulation
     # TODO: CRC checks
@@ -125,18 +144,6 @@ class FX2USB:
         URES = 4
         HSGRANT = 5
         EP01ACK = 6
-
-    class TState(enum.Enum):
-        # each transaction (except isosynchronous transfers) has 3 steps,
-        # first one is always sent by host
-        # read the values as "waiting for X", so TOKEN can be interpreted as idle state
-        TOKEN = 1
-        DATA = 2
-        HANDSHAKE = 3
-
-    #  class TDir(enum.Enum):
-    #      OUT = 1  # host -> dev
-    #      IN = 2   # dev -> host
 
     def __init__(self, dut, csrs):
         """
@@ -157,12 +164,189 @@ class FX2USB:
 
         self.armed_ep_lengths = {i: None for i in [0, 1, 2, 4, 6, 8]}
 
+        # construct transaction state machine
+        S = self.TransactionState
+        self.transaction_state_machine = StateMachine(S.WAIT_TOKEN, {
+            S.WAIT_TOKEN: self.on_wait_token,
+            S.WAIT_DATA_OUT: self.on_wait_data,
+            S.WAIT_HANDSHAKE_OUT: self.on_wait_handshake,
+        })
+
+    def send_to_host(self, packet):
+        assert self.to_send is None
+        self.to_send = packet
+
+    def update_csr(self, name, *args, immediate=False, **kwargs):
+        val = getattr(self.dut, 'fx2csr_' + name)
+        if immediate:
+            getattr(self.dut, 'fx2csr_' + name).setimmediatevalue(bitupdate(val, *args, **kwargs))
+        else:
+            setattr(self.dut, 'fx2csr_' + name, bitupdate(val, *args, **kwargs))
+
+    def set_csr(self, name, value, immediate=False):
+        if immediate:
+            getattr(self.dut, 'fx2csr_' + name).setimmediatevalue(value)
+        else:
+            setattr(self.dut, 'fx2csr_' + name, value)
+
+    def get_csr(self, name):
+        return int(getattr(self.dut, 'fx2csr_' + name))
+
+    def assert_interrupt(self, irq):
+        _dbg('(IRQ):', irq)
+        if irq in self.IRQ and 0 <= irq <= 6:
+            self.update_csr('usbirq', setbits=[irq])
+        else:
+            raise NotImplementedError('Unexpected IRQ: %s' % irq)
+
+    ### Transaction state machine ##############################################
+
     def reset_state(self):
-        # host always starts transactions, state means what we should receive next
-        self.tstate = self.TState.TOKEN
-        # store previous packets of a transaction between invocations
         self.token_packet = None
-        self.data_packet = None
+        self.to_send = None
+        self.received_data_callback = None
+        self.ack_callback = None
+
+    class TransactionState(enum.Enum):
+        WAIT_TOKEN = 1
+        # -> if OUT                        => WAIT_DATA_OUT
+        #    if IN  -> send data IN        => WAIT_HANDSHAKE_OUT
+        #    else                          => WAIT_TOKEN
+        WAIT_DATA_OUT = 2
+        # -> if data OUT -> send handshake => WAIT_TOKEN
+        #    else                          => WAIT_TOKEN
+        WAIT_HANDSHAKE_OUT = 3
+        # -> if handshake
+        #       -> if ACK                  => WAIT_TOKEN
+        #          if NACK -> send data IN => WAIT_HANDSHAKE_OUT
+        #    else                          => WAIT_TOKEN
+
+    def handle_packet(self, p):
+        # reset state if we receive something when in WAIT_TOKEN
+        if self.transaction_state_machine.state == self.TransactionState.WAIT_TOKEN:
+            self.reset_state()
+
+        self.packet = p
+
+        last = self.transaction_state_machine.state
+        new = self.transaction_state_machine.next()
+        _dbg('[STATE_MACHINE] %s -> %s' % (last, new))
+
+    def on_wait_token(self, s):
+        p, S = self.packet, self.TransactionState
+        self.token_packet = p
+        if p.pid == PID.SOF:
+            self.handle_sof()
+            return S.WAIT_TOKEN
+        elif p.pid == PID.SETUP or p.pid == PID.OUT:  # next direction OUT
+            self.handle_token_out() # should assign self.received_data_callback
+            return S.WAIT_DATA_OUT
+        elif p.pid == PID.IN:
+            self.handle_token_in()
+            return S.WAIT_HANDSHAKE_OUT
+        else:
+            # error
+            return S.WAIT_TOKEN
+
+    def on_wait_data(self, s):
+        p, S = self.packet, self.TransactionState
+        if p.pid == PID.DATA0 or p.pid == PID.DATA1:  # as expected, do not handle DATA2/MDATA
+            if self.check_data_out_toggle(p):
+                self.received_data_callback(p)
+                self.send_to_host(handshake_packet(PID.ACK))
+            else:
+                # TODO: wrong data sync
+                pass
+            # TODO: what if host does not receive ACK and sends data once again?
+            return S.WAIT_TOKEN
+        else:
+            # error
+            return S.WAIT_TOKEN
+
+    def on_wait_handshake(self, s):
+        p, S = self.packet, self.TransactionState
+        if p.pid == PID.ACK:
+            if self.ack_callback:
+                self.ack_callback(p.pid)
+            return S.WAIT_TOKEN
+        elif p.pid == PID.NAK:
+            # send data once again self.to_send should not be cleared in expect...
+            # expect_device_packet will be called once again sending self.to_send
+            return S.WAIT_HANDSHAKE_OUT
+        elif p.pid == PID.STALL:
+            raise ValueError('Host STALL not allowed')
+            return S.WAIT_TOKEN  # in theory we would do that
+        else:
+            # error
+            return S.WAIT_TOKEN
+
+    def handle_sof(self):
+        # update USBFRAMEH:L (FIXME: should also be incremented on missing/garbled frames, see docs)
+        self.set_csr('usbframeh', msb(self.packet.framenum))
+        self.set_csr('usbframel', lsb(self.packet.framenum))
+        # generate interrupt
+        self.assert_interrupt(self.IRQ.SOF)
+
+    def handle_token_out(self):
+        p = self.packet
+        if p.pid == PID.SETUP:
+            assert p.endp == 0
+            # interrupt generated after successful SETUP packet
+            self.assert_interrupt(self.IRQ.SUTOK)
+            # update ep status
+            self.update_csr('ep0cs', setbits=[7], clearbits=[1, 0])
+
+            def handle_setupdat(p):
+                # construct a SETUPDAT 64-bit value:
+                # (!) litex generates names with revesed numbers:
+                #   FX2 SETUPDAT[0] = setupdat7_w = fx2csr_setupdat[63:56]
+                setupdat = [b << (8 * i) for i, b in enumerate(reversed(p.data))]
+                setupdat64 = reduce(lambda acc, b: acc | b, setupdat)
+                self.set_csr('setupdat', setupdat64, immediate=True)
+                # interrupt and acknowledge
+                self.assert_interrupt(self.IRQ.SUDAV)
+
+            # during this callback we are sure that we have DATA0/DATA1
+            self.received_data_callback = handle_setupdat
+        elif p.pid == PID.OUT:
+            pass  # TODO
+            assert False
+        else:
+            raise ValueError(p.pid)
+
+    def handle_token_in(self):
+        ep = self.packet.endp
+        io = 1 # IN because it's handle_token_in
+        toggle = testbit(self.dut.togctl_toggles, ep2toggle_index(ep, io))
+        data_pid = PID.DATA1 if toggle else PID.DATA0
+        # TODO: send meaningful data
+        self.send_to_host(data_packet(data_pid, []))
+        def ack_callback(pid):
+            if pid == PID.ACK:
+                if toggle:
+                    self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
+                                                        clearbits=[ep2toggle_index(ep, io)])
+                else:
+                    self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
+                                                        setbits=[ep2toggle_index(ep, io)])
+        self.ack_callback = ack_callback
+
+    def check_data_out_toggle(self, p):
+        tp = self.token_packet
+        ep = tp.endp
+        io = 0 if tp.pid == PID.OUT or tp.pid == PID.SETUP else 1
+        toggle = testbit(self.dut.togctl_toggles, ep2toggle_index(ep, io))
+        ok = (toggle and p.pid == PID.DATA1) or (not toggle and p.pid == PID.DATA0)
+        if ok:
+            if toggle:
+                self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
+                                                    clearbits=[ep2toggle_index(ep, io)])
+            else:
+                self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
+                                                    setbits=[ep2toggle_index(ep, io)])
+        return ok
+
+    ### CPU register access monitor ############################################
 
     def monitor_handler(self, wb):
         # clear interrupt flags on writes instead of setting register value
@@ -189,193 +373,26 @@ class FX2USB:
             # set BUSY bit in EP0CS
             self.update_csr('ep0cs', setbits=[1])
 
-        #  for reg in []
-
-        #  if wb.we:
-        #      csrs = filter(lambda kv: kv[1] == wb.adr, self.csrs.items())
-        #      print('WRITE: 0x%02x @0x%04x: %s' % (wb.dat_w, wb.adr, ', '.join(kv[0] for kv in csrs)))
-
-    # handle the date in TOKEN packet
-    # return True if it has been handled
-    # set appropriate next state (what we will receive next - DATA/HANDSHAKE)
-    # when returned False, state will be reset, else the token packet will be stored
-    def handle_token(self, p):
-        # TODO: handle addr/endp token fields
-        # it always comes from host
-
-        if p.pid == PID.SOF:
-            # update USBFRAMEH:L (FIXME: should also be incremented on missing/garbled frames, see docs)
-            self.set_csr('usbframeh', msb(p.framenum))
-            self.set_csr('usbframel', lsb(p.framenum))
-            # generate interrupt
-            self.assert_interrupt(self.IRQ.SOF)
-            return False  # no data/handshake, just reset state
-
-        elif p.pid == PID.SETUP:
-            # interrupt generated after successful SETUP packet
-            self.assert_interrupt(self.IRQ.SUTOK)
-            # update ep status
-            self.update_csr('ep0cs', setbits=[7], clearbits=[1, 0])
-            self.tstate = self.TState.DATA
-            return True
-
-        # OUT are handled in data stage
-        elif p.pid == PID.OUT:
-            self.tstate = self.TState.DATA
-            return True
-
-        # in trasnfers are handled now, as testbench will next call expect_device_packet()
-        # then host will send ACK, so next state is handshake
-        elif p.pid == PID.IN:
-            return self.handle_data_in(p)
-
-        return False
-
-    def handle_data_in(self, tp):
-
-        if tp.endp == 0:
-            hsnak = testbit(self.get_csr('ep0cs'), 7)
-            stall = testbit(self.get_csr('ep0cs'), 0)
-            print('hsnak', end=' '); __import__('pprint').pprint(hsnak)
-            print('stall', end=' '); __import__('pprint').pprint(stall)
-            # as long as HSNAK has not been cleared, we nak all transfers
-            # we also NAK if endpoint has not been armed
-            if hsnak:
-                self.to_send = handshake_packet(PID.NAK)
-            elif stall:
-                self.to_send = handshake_packet(PID.STALL)
-            else:
-                # IN can mean STATUS stage on EP0, so send empty packet
-                if self.armed_ep_lengths[0] is None:
-                    self.to_send = data_packet(PID.DATA1, [])
-                else:
-                    assert False, 'payload from ep0!'
-                    payload = list(range(self.armed_ep_lengths[0]))
-                    self.to_send = data_packet(PID.DATA1, payload)
-            return True
-        else:
-            assert False
-
-        #  # if endpoint is not armed, do what EPxCS specifies
-        #  if self.armed_ep_lengths[tp.endp] is None:
-        #      if tp.endp == 0:
-        #          hsnak = testbit(self.get_csr('ep0cs'), 7)
-        #          stall = testbit(self.get_csr('ep0cs'), 0)
-        #          # as long as HSNAK has not been cleared, we nak all transfers
-        #          if hsnak:
-        #              self.to_send = handshake_packet(PID.NAK)
-        #          elif stall:
-        #          return False
-        #      else:
-        #          assert False
-        #  # if endpoint has been armed get the endpoint data and send it back to host
-        #  # TODO: endpoint data buffering
-        #  else:
-        #      l = self.armed_ep_lengths[tp.endp]
-        #      self.armed_ep_lengths[tp.endp] = None
-        #
-        #      if tp.endp == 0:
-        #          ep0buf = 0x740
-        #          payload = list(range(l))  # FIXME: fake data
-        #      else:
-        #          __import__('ipdb').set_trace()
-        #      self.to_send = data_packet(PID.DATA0, payload)
-        #      self.tstate = self.TState.HANDSHAKE
-        #      return True
-
-    # handle DATA/HANDSHAKE reception
-    def handle_other(self, p):
-        assert self.token_packet
-        tp = self.token_packet
-
-        # different action depending on token pid
-        if tp.pid == PID.SETUP:
-            if p.pid == PID.DATA0 and tp.endp == 0:
-                self.data_packet = p
-                # construct a SETUPDAT 64-bit value:
-                # (!) litex generates names with revesed numbers:
-                #   FX2 SETUPDAT[0] = setupdat7_w = fx2csr_setupdat[63:56]
-                setupdat = [b << (8 * i) for i, b in enumerate(reversed(p.data))]
-                setupdat64 = reduce(lambda acc, b: acc | b, setupdat)
-                self.set_csr('setupdat', setupdat64, immediate=True)
-                # interrupt and acknowledge
-                self.assert_interrupt(self.IRQ.SUDAV)
-                self.to_send = handshake_packet(PID.ACK)
-                return True
-            else:
-                __import__('ipdb').set_trace()
-
-        # we got OUT token, now we receive data from host
-        elif tp.pid == PID.OUT:
-            assert False
-
-        elif tp.pid == PID.IN:
-            assert False
-            assert False
-
-        else:
-            __import__('ipdb').set_trace()
-
-        # on any other token something went wrong
-        __import__('ipdb').set_trace()
-        return False
+    ### Interface to host ######################################################
 
     @cocotb.coroutine
     def receive_host_packet(self, packet):
-        # this is called when host sends data, we should set self.send_to in this method
         p = decode_packet(packet)
-        print('p =', end=' '); __import__('pprint').pprint(p)
-
-        yield ClockCycles(self.dut.sys_clk, len(packet))
-
-        # reset state if host sends wrong packet category (should not happen)
-        if self.tstate.name != p.category:
-            self.reset_state()
-        elif self.tstate == self.TState.TOKEN:
-            if self.handle_token(p):
-                self.token_packet = p
-            else:
-                self.reset_state()
-        else:
-            self.handle_other(p)
-            self.reset_state()
-
+        self.handle_packet(p)
         yield ClockCycles(self.dut.sys_clk, 1)
 
     @cocotb.coroutine
     def expect_device_packet(self, timeout):
-        #  #  if self.tstate == self.TState.HANDSHAKE:
-        #  self.monitor.address_override = [(0xe6a0, 0xe6a0)] # ep0cs
-        #  reg = yield self.monitor.wait_for_recv(timeout)
-        yield NullTrigger()
-        to_send = self.to_send
-        self.to_send = None
-        return to_send
-
-    def update_csr(self, name, *args, immediate=False, **kwargs):
-        val = getattr(self.dut, 'fx2csr_' + name)
-        if immediate:
-            getattr(self.dut, 'fx2csr_' + name).setimmediatevalue(bitupdate(val, *args, **kwargs))
+        if self.to_send is not None:
+            packet = self.to_send
+            # simulate sending time
+            yield ClockCycles(self.dut.sys_clk, len(wrap_packet(packet)))
+            return packet
         else:
-            setattr(self.dut, 'fx2csr_' + name, bitupdate(val, *args, **kwargs))
+            #  yield Timer(timeout)
+            yield Timer(timeout // 100)  # 10us, faster debugging
+            return None
 
-    def set_csr(self, name, value, immediate=False):
-        if immediate:
-            getattr(self.dut, 'fx2csr_' + name).setimmediatevalue(value)
-        else:
-            setattr(self.dut, 'fx2csr_' + name, value)
-
-    def get_csr(self, name):
-        return int(getattr(self.dut, 'fx2csr_' + name))
-
-
-
-    def assert_interrupt(self, irq):
-        print('FX2 interrupt: ', irq)
-        if irq in self.IRQ and 0 <= irq <= 6:
-            self.update_csr('usbirq', setbits=[irq])
-        else:
-            raise NotImplementedError('Unexpected IRQ: %s' % irq)
 
 
 class UsbTestFX2(UsbTest):
@@ -436,11 +453,13 @@ class UsbTestFX2(UsbTest):
     # Host->Device
     @cocotb.coroutine
     def _host_send_packet(self, packet):
+        _dbg('>> %s' % decode_packet(packet))
         yield self.fx2_usb.receive_host_packet(packet)
 
     # Device->Host
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
+        _dbg('<? %s' % decode_packet(packet))
         result = yield self.fx2_usb.expect_device_packet(timeout=1e9) # 1ms max
 
         if result is None:
@@ -451,6 +470,7 @@ class UsbTestFX2(UsbTest):
         expected = pp_packet(wrap_packet(packet))
         actual = pp_packet(wrap_packet(result))
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
+        _dbg('<< %s' % decode_packet(result))
         if (actual == nak) and (expected != nak):
             self.dut._log.warn("Got NAK, retry")
             yield Timer(self.RETRY_INTERVAL, 'us')
