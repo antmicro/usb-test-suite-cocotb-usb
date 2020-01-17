@@ -1,7 +1,7 @@
 from os import environ
 from cocotb_usb.host import UsbTest
 from cocotb_usb.host_valenty import UsbTestValenty
-from cocotb_usb.host_fx2 import UsbTestFX2
+from cocotb_usb.fx2.host import UsbTestFX2
 
 TARGET = environ.get('TARGET')
 

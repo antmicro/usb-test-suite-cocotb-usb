@@ -1,125 +1,21 @@
 import enum
-from collections import namedtuple
-from functools import reduce
 
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles, NullTrigger
 from cocotb.result import ReturnValue, TestFailure
-from cocotb.monitors import BusMonitor
 from cocotb.utils import get_sim_time
 
 from cocotb_usb.usb.pid import PID
 from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
                                    sof_packet, handshake_packet)
-from cocotb_usb.usb.pp_packet import pp_packet
 
-from cocotb_usb.wishbone import WishboneMaster
-from cocotb_usb.host import UsbTest
-from cocotb_usb.utils import parse_csr,assertEqual
-from cocotb_usb import usb
+from .usb_decoder import decode_packet
+from .state_machine import StateMachine
 
-from cocotb_usb.usb_decoder import decode_packet
-from cocotb_usb.state_machine import StateMachine
-
-
-def _dbg(*args):
-    bold_white = '\033[1;37m'
-    clear = '\033[0m'
-    print(bold_white + '  ', end='')
-    print(args[0], end=clear)
-    print('', *args[1:])
-
-
-class RegisterAccessMonitor(BusMonitor):
-    """
-    Monitors wishbone bus for access to registers in given address ranges.
-
-    Args:
-        address_ranges: list of tuples (address_min, address_max), inclusive
-    """
-
-    RegisterAccess = namedtuple('RegisterAccess', ['adr', 'dat_r', 'dat_w', 'we'])
-
-    def __init__(self, dut, address_ranges, *args, **kwargs):
-        self.address_ranges = address_ranges
-        self.dut = dut
-        super().__init__(*[dut, *args], **kwargs)
-
-        self.wb_adr = self.dut.wishbone_cpu_adr
-        self.wb_dat_r = self.dut.wishbone_cpu_dat_r
-        self.wb_dat_w = self.dut.wishbone_cpu_dat_w
-        self.wb_we = self.dut.wishbone_cpu_we
-        self.wb_cyc = self.dut.wishbone_cpu_cyc
-        self.wb_stb = self.dut.wishbone_cpu_stb
-        self.wb_ack = self.dut.wishbone_cpu_ack
-
-        self.address_override = None
-
-    @cocotb.coroutine
-    def _monitor_recv(self):
-        # wait until there are no undefined signal values
-        yield FallingEdge(self.dut.reset)
-
-        while True:
-            # wait for positive edge on ack to speed up compared to checking on each clock edge
-            yield RisingEdge(self.wb_ack)
-
-            if self.wb_cyc == 1 and self.wb_stb == 1 and self.wb_ack == 1:
-                adr, dat_r, dat_w, we = map(int, (self.wb_adr, self.wb_dat_r, self.wb_dat_w, self.wb_we))
-                if self.is_monitored_address(adr):
-                    self._recv(self.RegisterAccess(adr, dat_r, dat_w, we))
-
-    def is_monitored_address(self, adr):
-        address_ranges = self.address_ranges if self.address_override is None else self.address_override
-        for adr_min, adr_max in address_ranges:
-            if adr_min <= adr <= adr_max:
-                return True
-        return False
-
-def bit(n):
-    return 1 << int(n)
-
-def testbit(val, n):
-    return (int(val) & bit(n)) != 0
-
-def msb(word):
-    return (0xff00 & int(word)) >> 8
-
-def lsb(word):
-    return 0xff & int(word)
-
-def word(msb, lsb):
-    return ((int(msb) & 0xff) << 8) | (int(lsb) & 0xff)
-
-
-def bitupdate(reg, *, set=None, clear=None, clearbits=None, setbits=None):
-    """
-    Convenience function for bit manipulations.
-
-    reg:       original value
-    set:       bitmask of values to be set
-    clear:     bitmask of values to be cleared
-    setbits:   list of bit offsets to use for constructing `set` mask (`set` must be None)
-    clearbits: list of bit offsets to use for constructing `clear` mask (`clear` must be None)
-    """
-    # convert bit lists to masks
-    bitsmask = lambda bits: reduce(lambda p, q: p | q, ((1 << b) for b in bits))
-    if clearbits:
-        assert clear is None, "'clear' must not be used when using 'clearbits'"
-        clear = bitsmask(clearbits)
-    if setbits:
-        assert set is None, "'set' must not be used when using 'setbits'"
-        set = bitsmask(setbits)
-    # set default values, assert when nothing happens (we don't use this function if need no change)
-    assert set is not None or clear is not None, 'Nothing to set/clear'
-    set = 0 if set is None else set
-    clear = 0 if clear is None else clear
-    # clear and set mask overlap
-    assert (set & clear) == 0, 'Bit masks overlap: set(%s) clear(%s)' % (bin(set), bin(clear))
-    # perform bit operation
-    reg = (int(reg) & (~clear)) | set
-    return reg
+from .utils import *
+from .utils import _dbg, bit, testbit, msb, lsb, word, bitupdate
+from .monitor import RegisterAccessMonitor
 
 
 def ep2toggle_index(ep, io=0):
@@ -394,89 +290,3 @@ class FX2USB:
             return None
 
 
-
-class UsbTestFX2(UsbTest):
-    """
-    Host implementation for FX2 USB tests.
-    It is used for testing higher level USB logic of FX2 firmware,
-    instead of testing the USB peripheral. Wishbone data bus is used
-    to intercept USB communication at register level.
-    """
-    def __init__(self, dut, csr_file, **kwargs):
-        self.dut = dut
-
-        self.clock_period = 20830  # ps, ~48MHz
-        cocotb.fork(Clock(dut.clk, self.clock_period, 'ps').start())
-
-        self.wb = WishboneMaster(dut, "wishbone", dut.clk, timeout=20)
-        self.fx2_usb = FX2USB(self.dut.dut, parse_csr(csr_file))
-
-    @cocotb.coroutine
-    def wait_cpu(self, clocks):
-        yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks, rising=True)
-
-    @cocotb.coroutine
-    def wait(self, time, units="us"):
-        yield super().wait(time // 10, units=units)
-
-    @cocotb.coroutine
-    def reset(self):
-        self.address = 0
-        self.dut.reset = 1
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
-        self.dut.reset = 0
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
-
-    @cocotb.coroutine
-    def port_reset(self, time=10e3, recover=False):
-        yield NullTrigger()
-
-        self.dut._log.info("[Resetting port for {} us]".format(time))
-
-        #  yield self.wait(time, "us")
-        yield self.wait(1, "us")
-        self.connect()
-        if recover:
-            #  yield self.wait(1e4, "us")
-            yield self.wait(1, "us")
-
-    @cocotb.coroutine
-    def connect(self):
-        yield NullTrigger()
-
-    @cocotb.coroutine
-    def disconnect(self):
-        """Simulate device disconnect, both lines pulled low."""
-        yield NullTrigger()
-        self.address = 0
-
-    # Host->Device
-    @cocotb.coroutine
-    def _host_send_packet(self, packet):
-        _dbg('>> %s' % decode_packet(packet))
-        yield self.fx2_usb.receive_host_packet(packet)
-
-    # Device->Host
-    @cocotb.coroutine
-    def host_expect_packet(self, packet, msg=None):
-        _dbg('<? %s' % decode_packet(packet))
-        result = yield self.fx2_usb.expect_device_packet(timeout=1e9) # 1ms max
-
-        if result is None:
-            current = get_sim_time("us")
-            raise TestFailure(f"No full packet received @{current}")
-
-        yield RisingEdge(self.dut.clk48_host)
-
-        # Check the packet received matches
-        expected = pp_packet(wrap_packet(packet))
-        actual = pp_packet(wrap_packet(result))
-        nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
-        _dbg('<< %s' % decode_packet(result))
-        if (actual == nak) and (expected != nak):
-            self.dut._log.warn("Got NAK, retry")
-            yield Timer(self.RETRY_INTERVAL, 'us')
-            return
-        else:
-            self.retry = False
-            assertEqual(expected, actual, msg)

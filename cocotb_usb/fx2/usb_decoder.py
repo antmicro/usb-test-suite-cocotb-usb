@@ -1,4 +1,4 @@
-from .usb.pid import PID
+from cocotb_usb.usb.pid import PID
 
 
 class DotDict(dict):
