@@ -15,7 +15,7 @@ from .state_machine import StateMachine
 
 from .utils import *
 from .utils import _dbg, bit, testbit, msb, lsb, word, bitupdate
-from .monitor import RegisterAccessMonitor
+from .monitor import ExternalRAMMonitor, SFRMonitor, FX2_SFRS
 
 
 def ep2toggle_index(ep, io=0):
@@ -26,6 +26,107 @@ def ep2toggle_index(ep, io=0):
         return 1 + io
     else:
         return ep // 2 + 2  # 3-6
+
+
+# TODO: try using definitions from fx2-sim directly instead of copying code
+_ram_areas = {  # TRM 5.6
+    'main_ram':       (0x0000, 16 * 2**10),
+    'scratch_ram':    (0xe000, 512),
+    'gpif_waveforms': (0xe400, 128),
+    'ezusb_csrs':     (0xe500, 512),
+    'ep0inout':       (0xe740, 64),
+    'ep1out':         (0xe780, 64),
+    'ep1in':          (0xe7c0, 64),
+    'ep2468':         (0xf000, 4 * 2**10),
+}
+
+def xram_mem_set(dut, adr, data):
+    for mem, (origin, size) in _ram_areas.items():
+        if origin <= adr <= origin + size:
+            mem_name = 'mem_%s' % mem
+            storage = getattr(dut, mem_name)
+            storage[adr - origin].setimmediatevalue(data)
+            return
+
+
+def xram_mem_get(dut, adr):
+    for mem, (origin, size) in _ram_areas.items():
+        if origin <= adr <= origin + size:
+            mem_name = 'mem_%s' % mem
+            storage = getattr(dut, mem_name)
+            return int(storage[adr - origin])
+
+
+class Autopointers:
+    def __init__(self, fx2usb):
+        self.fx2usb = fx2usb
+        # AUTOPTRSETUP
+        self.aptr1inc = True
+        self.aptr2inc = True
+        self.aptren = False
+        # addresses AUTOPTR[H/L]1, AUTOPTR[H/L]2
+        self.autoptr1 = 0
+        self.autoptr2 = 0
+
+    def handle_sfr_access(self, access):
+        if access.is_write:
+            if access.adr == FX2_SFRS['AUTOPTRSETUP']:
+                self.aptren = testbit(access.data, 0)
+                self.aptr1inc = testbit(access.data, 1)
+                self.aptr2inc = testbit(access.data, 2)
+            elif access.adr == FX2_SFRS['AUTOPTRH1']:
+                self.autoptr1 = word(access.data, lsb(self.autoptr1))
+            elif access.adr == FX2_SFRS['AUTOPTRL1']:
+                self.autoptr1 = word(msb(self.autoptr1), access.data)
+            elif access.adr == FX2_SFRS['AUTOPTRH2']:
+                self.autoptr2 = word(access.data, lsb(self.autoptr2))
+            elif access.adr == FX2_SFRS['AUTOPTRL2']:
+                self.autoptr2 = word(msb(self.autoptr2), access.data)
+        else:
+            if access.adr == FX2_SFRS['AUTOPTRSETUP']:
+                access.data.setimmediatevalue(
+                    int(self.aptren)   << 0 |
+                    int(self.aptr1inc) << 1 |
+                    int(self.aptr2inc) << 2)
+            elif access.adr == FX2_SFRS['AUTOPTRH1']:
+                access.data.setimmediatevalue(msb(self.autoptr1))
+            elif access.adr == FX2_SFRS['AUTOPTRL1']:
+                access.data.setimmediatevalue(lsb(self.autoptr1))
+            elif access.adr == FX2_SFRS['AUTOPTRH2']:
+                access.data.setimmediatevalue(msb(self.autoptr2))
+            elif access.adr == FX2_SFRS['AUTOPTRL2']:
+                access.data.setimmediatevalue(lsb(self.autoptr2))
+
+    def handle_xram_access(self, access):
+        # handle access to XAUTODAT1 and XAUTODAT2
+        if access.adr == 0xe67b:  # XAUTODAT1
+            if access.we == 0: # read (should be before ack!)
+                # read value at memory location pointed by autopointer
+                value = xram_mem_get(self.fx2usb.dut, self.autoptr1)
+                # set value of xautodat1 so that in next cycle it will be read on bus
+                self.fx2usb.set_csr('xautodat1', value, immediate=True)
+                print('xautodat1: read:  0x%02x @ 0x%04x' % (value, self.autoptr1))
+                if access.ack:
+                    self.autoptr1 += 1
+            else: # write
+                if access.ack:
+                    xram_mem_set(self.fx2usb.dut, self.autoptr1, access.dat_w)
+                    self.autoptr1 += 1
+                    print('xautodat1: write: 0x%02x @ 0x%04x' % (access.dat_w, self.autoptr1))
+        elif access.adr == 0xe67c:  # XAUTODAT2
+            if access.we == 0: # read (should be before ack!)
+                value = xram_mem_get(self.fx2usb.dut, self.autoptr2)
+                self.fx2usb.set_csr('xautodat2', value, immediate=True)
+                print('xautodat2: read:  0x%02x @ 0x%04x' % (value, self.autoptr2))
+                if access.ack:
+                    self.autoptr2 += 1
+            else: # write
+                if access.ack:
+                    xram_mem_set(self.fx2usb.dut, self.autoptr2, access.dat_w)
+                    print('xautodat2: write: 0x%02x @ 0x%04x' % (access.dat_w, self.autoptr2))
+                    self.autoptr2 += 1
+
+
 
 
 class FX2USB:
@@ -53,9 +154,10 @@ class FX2USB:
             (0xe740, 0xe7ff),
             (0xf000, 0xffff),
         ]
-        self.monitor = RegisterAccessMonitor(self.dut, usb_adr_ranges,
-                                             name='wishbone', clock=dut.sys_clk,
-                                             callback=self.monitor_handler)
+        self.xram_monitor = ExternalRAMMonitor(self.dut, usb_adr_ranges,
+                                               name='xram', callback=self.xram_access_handler)
+        self.sfr_monitor = SFRMonitor(self.dut, name='sfr', callback=self.sfr_access_handler)
+        self.autopointers = Autopointers(self)
         self.reset_state()
 
         self.armed_ep_lengths = {i: None for i in [0, 1, 2, 4, 6, 8]}
@@ -244,30 +346,37 @@ class FX2USB:
 
     ### CPU register access monitor ############################################
 
-    def monitor_handler(self, wb):
-        # clear interrupt flags on writes instead of setting register value
-        clear_on_write_regs = ['ibnirq', 'nakirq', 'usbirq', 'epirp', 'gpifirq',
-                               *('ep%dfifoirq' % i for i in [2, 4, 6, 8])]
-        for reg in clear_on_write_regs:
-            if reg in self.csrs.keys():  # only implemented registers
-                if wb.adr == self.csrs[reg] and wb.we:
-                    # use the value that shows up on read signal as last register value
-                    last_val = wb.dat_r
-                    # we can set the new value now, as at this moment value from wishbone bus
-                    # has already been written
-                    self.set_csr(reg, bitupdate(last_val, clear=wb.dat_w))
+    def xram_access_handler(self, access):
+        if access.ack:
+            # clear interrupt flags on writes instead of setting register value
+            clear_on_write_regs = ['ibnirq', 'nakirq', 'usbirq', 'epirp', 'gpifirq',
+                                   *('ep%dfifoirq' % i for i in [2, 4, 6, 8])]
+            for reg in clear_on_write_regs:
+                if reg in self.csrs.keys():  # only implemented registers
+                    if access.adr == self.csrs[reg] and access.we:
+                        # use the value that shows up on read signal as last register value
+                        last_val = access.dat_r
+                        # we can set the new value now, as at this moment value from wishbone bus
+                        # has already been written
+                        self.set_csr(reg, bitupdate(last_val, clear=access.dat_w))
 
-        # endpoint arming
-        ep_len = lambda prefix: word(self.get_csr(prefix + 'h'), self.get_csr(prefix + 'l'))
-        if wb.adr == self.csrs['ep0bcl']:
-            sdpauto = (self.get_csr('sudptrctl') & 0b1) != 0
-            if sdpauto:  # should get length from descriptors
-                raise NotImplementedError()
-            else:
-                self.armed_ep_lengths[0] = ep_len('ep0bc')
-                # TODO: what when EP has already been armed?
-            # set BUSY bit in EP0CS
-            self.update_csr('ep0cs', setbits=[1])
+            # endpoint arming
+            ep_len = lambda prefix: word(self.get_csr(prefix + 'h'), self.get_csr(prefix + 'l'))
+            if access.adr == self.csrs['ep0bcl']:
+                sdpauto = (self.get_csr('sudptrctl') & 0b1) != 0
+                if sdpauto:  # should get length from descriptors
+                    raise NotImplementedError()
+                else:
+                    self.armed_ep_lengths[0] = ep_len('ep0bc')
+                    # TODO: what when EP has already been armed?
+                # set BUSY bit in EP0CS
+                self.update_csr('ep0cs', setbits=[1])
+
+        # even without ack handle autopointers
+        self.autopointers.handle_xram_access(access)
+
+    def sfr_access_handler(self, access):
+        self.autopointers.handle_sfr_access(access)
 
     ### Interface to host ######################################################
 
@@ -288,5 +397,3 @@ class FX2USB:
             #  yield Timer(timeout)
             yield Timer(timeout // 100)  # 10us, faster debugging
             return None
-
-
