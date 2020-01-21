@@ -46,7 +46,6 @@ def xram_mem_set(dut, adr, data):
             mem_name = 'mem_%s' % mem
             storage = getattr(dut, mem_name)
             storage[adr - origin].setimmediatevalue(data)
-            _dbg('xram_mem_set @0x%04x <= 0x%02x' % (adr, data))
             return
 
 
@@ -55,7 +54,6 @@ def xram_mem_get(dut, adr):
         if origin <= adr <= origin + size:
             mem_name = 'mem_%s' % mem
             storage = getattr(dut, mem_name)
-            _dbg('xram_mem_get @0x%04x => 0x%02x' % (adr, int(storage[adr - origin])))
             return int(storage[adr - origin])
     raise KeyError('Address not in XRAM storage: 0x%04x' % adr)
 
@@ -156,6 +154,12 @@ class FX2USB:
         HSGRANT = 5
         EP01ACK = 6
 
+    class ControlTransferType(enum.Enum):
+        # control transfer can have data stage IN/OUT or no data stage
+        # status stage has opposite direction to data stage or IN if there is no data stage
+        STATUS_OUT = 1
+        STATUS_IN = 2
+
     def __init__(self, dut, csrs):
         """
         dut: the actual dut from dut.v (not tb.v)
@@ -173,6 +177,7 @@ class FX2USB:
         self.sfr_monitor = SFRMonitor(self.dut, name='sfr', callback=self.sfr_access_handler)
         self.autopointers = Autopointers(self)
         self.reset_state()
+        self.ctrl_transfer = None
 
         self.armed_ep_lengths = {i: None for i in [0, 1, 2, 4, 6, 8]}
 
@@ -185,7 +190,7 @@ class FX2USB:
         })
 
     def send_to_host(self, packet):
-        _dbg('send_to_host(%s)' % packet)
+        #  _dbg('send_to_host(%s)' % packet)
         self.expect_data_callback = lambda: packet
 
     def update_csr(self, name, *args, immediate=False, **kwargs):
@@ -213,13 +218,6 @@ class FX2USB:
 
     ### Transaction state machine ##############################################
 
-    def reset_state(self):
-        _dbg('reset_state')
-        self.token_packet = None
-        self.received_data_callback = None
-        self.expect_data_callback = None
-        self.ack_callback = None
-
     class TransactionState(enum.Enum):
         WAIT_TOKEN = 1
         # -> if OUT                        => WAIT_DATA_OUT
@@ -234,12 +232,25 @@ class FX2USB:
         #          if NACK -> send data IN => WAIT_HANDSHAKE_OUT
         #    else                          => WAIT_TOKEN
 
+    def reset_state(self):
+        _dbg('reset_state')
+        self.token_packet = None
+        self.received_data_callback = None
+        self.expect_data_callback = None
+        self.ack_callback = None
+
     def handle_packet(self, p):
         # reset state if we receive something when in WAIT_TOKEN
         if self.transaction_state_machine.state == self.TransactionState.WAIT_TOKEN:
             self.reset_state()
 
         self.packet = p
+
+        # first fix code that sets address
+        #  # ignore packets with different address then ours
+        #  if p.pid in [PID.SETUP, PID.OUT, PID.IN] and p.addr != self.get_csr('fnaddr'):
+        #      _dbg('Ignoring packet with address 0x%02x (ours = 0x%02x)' % (p.addr, self.get_csr('fnaddr')))
+        #      return
 
         last = self.transaction_state_machine.state
         new = self.transaction_state_machine.next()
@@ -248,6 +259,7 @@ class FX2USB:
     def on_wait_token(self, s):
         p, S = self.packet, self.TransactionState
         self.token_packet = p
+
         if p.pid == PID.SOF:
             self.handle_sof()
             return S.WAIT_TOKEN
@@ -255,8 +267,12 @@ class FX2USB:
             self.handle_token_out() # should assign self.received_data_callback
             return S.WAIT_DATA_OUT
         elif p.pid == PID.IN:
-            self.handle_token_in()
-            return S.WAIT_HANDSHAKE_OUT
+            # next state depends on success:
+            # whether we NAK/STALLed or we sent data and wait for ACK
+            if self.handle_token_in():
+                return S.WAIT_HANDSHAKE_OUT
+            else:
+                return S.WAIT_TOKEN
         else:
             # error
             return S.WAIT_TOKEN
@@ -264,13 +280,17 @@ class FX2USB:
     def on_wait_data(self, s):
         p, S = self.packet, self.TransactionState
         if p.pid == PID.DATA0 or p.pid == PID.DATA1:  # as expected, do not handle DATA2/MDATA
-            if not self.check_data_out_toggle(p):
-                # TODO: wrong data sync
+            if not self.handle_data_out_toggle(p):
                 _dbg('WRONG DATA SYNC')
-            self.received_data_callback(p)
-            self.send_to_host(handshake_packet(PID.ACK))
-            # TODO: what if host does not receive ACK and sends data once again?
-            return S.WAIT_TOKEN
+                return S.WAIT_TOKEN
+            else:  # data01 is ok
+                # if this was last packet go back to waiting for token
+                if self.received_data_callback(p):
+                    # TODO: what if host does not receive ACK and sends data once again?
+                    self.send_to_host(handshake_packet(PID.ACK))
+                    return S.WAIT_TOKEN
+                else:  # we need to handle more data
+                    return S.WAIT_DATA_OUT
         else:
             # error
             return S.WAIT_TOKEN
@@ -308,24 +328,70 @@ class FX2USB:
             # update ep status
             self.update_csr('ep0cs', setbits=[7], clearbits=[1, 0])
 
+            # clear data toggle
+            # data toggle should be reset when receiveing SETUP packet (USB 2.0, 8.6.1)
+            i = ep2toggle_index(0)
+            self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles, clearbits=[i])
+
             def handle_setupdat(p):
                 self.set_csr('setupdat', setupdat_bytes_to_csr(p.data), immediate=True)
                 # interrupt and acknowledge
                 self.assert_interrupt(self.IRQ.SUDAV)
 
-                # handle SET_ADDRESS requests, as firmware does not have to send any data back
-                # TODO: make this less hacky
+                # FX2 handles only SET_ADDRESS request in hardware (TRM 2.3)
+                # TODO: when setting address we should wait until status stage ACK completes!
+                #       then uncomment code in handle_packet
                 if p.data[0] == 0x00 and p.data[1] == 0x05:
-                    _dbg('SET_ADDRESS: 0x%02x' % p.data[2])
-                    self.arm_endpoint(0)
+                    adr = word(p.data[3], p.data[2])
+                    assert adr < 0x80, 'USB device address should have 7 bits'
+                    self.set_csr('fnaddr', adr)
+                    # automatically ack
+                    self.update_csr('ep0cs', clearbits=[7])
+
+                length = word(p.data[7], p.data[6])
+                is_data_dev2host = testbit(p.data[0], 7)
+                if not is_data_dev2host or length == 0:  # data OUT/no data -> status IN
+                    self.ctrl_transfer = self.ControlTransferType.STATUS_IN
+                else:  # data IN, so status OUT
+                    self.ctrl_transfer = self.ControlTransferType.STATUS_OUT
+                _dbg('self.ctrl_transfer := ', self.ctrl_transfer)
+
+                return True  # setup has always only one data packet
 
             # during this callback we are sure that we have DATA0/DATA1
             self.received_data_callback = handle_setupdat
 
         elif p.pid == PID.OUT:
-            def handle_data(_):
-                nonlocal p
-                _dbg('Not implemented: handle_data_out: ep = %s' % p.ep)
+            # handler called for data packet, returns True when all data has been received
+            def handle_data(p):
+                _dbg('handle_data: tep = %s, ctrl_transfer = %s' % (self.token_packet.endp, self.ctrl_transfer))
+                if self.token_packet.endp == 0 and self.ctrl_transfer == self.ControlTransferType.STATUS_OUT:
+                    # we are in control trasfer IN, status stage
+                    assert p.pid == PID.DATA1, 'Status packet should always have DATA1'
+                    assert len(p.data) == 0, 'Status packet should be empty'
+
+                    # send status stage handshake
+                    hsnak = testbit(self.get_csr('ep0cs'), 7)
+                    stall = testbit(self.get_csr('ep0cs'), 0)
+                    if hsnak:
+                        self.send_to_host(handshake_packet(PID.NAK))
+                    elif stall:
+                        self.send_to_host(handshake_packet(PID.STALL))
+                        # clear stall (EP0 should stall once)
+                        self.update_csr('ep0cs', clearbits=[0])
+                    else:
+                        self.send_to_host(handshake_packet(PID.ACK))
+                        # control transfer finished
+                        self.ctrl_transfer = None; _dbg('* ctrl_transfer = None')
+
+
+                elif self.token_packet.endp == 0:
+                    # we are in control trasfer OUT, data stage
+                    raise NotImplementedError('Data OUT handling for control trasnfers OUT')
+                else:
+                    raise NotImplementedError('Data OUT handling for endpoints other than EP0')
+
+                return True # all data received
             self.received_data_callback = handle_data
 
         else:
@@ -333,22 +399,44 @@ class FX2USB:
 
     def handle_token_in(self):
         ep = self.packet.endp
-        io = 1 # IN because it's handle_token_in
+        io = 1 # IN because it's "handle_token_in"
+
         toggle = testbit(self.dut.togctl_toggles, ep2toggle_index(ep, io))
         data_pid = PID.DATA1 if toggle else PID.DATA0
-        # TODO: send meaningful data
 
-        #  if ep == 0:
-        #      if testbit(self.get_csr('sudptrctl'), 0):  # SDPAUTO - automatic filling of EP buffer
-
-        #  if length is None:
+        # check if this IN transfer is a status stage of control transfer,
+        print('  handle_token_in:self.ctrl_transfer', end=' '); __import__('pprint').pprint(self.ctrl_transfer)
+        is_status_stage = ep == 0 and self.ctrl_transfer == self.ControlTransferType.STATUS_IN
+        if is_status_stage:
+            # send status stage handshake instead of data it it is NAK/STALL
+            hsnak = testbit(self.get_csr('ep0cs'), 7)
+            stall = testbit(self.get_csr('ep0cs'), 0)
+            if hsnak:
+                self.send_to_host(handshake_packet(PID.NAK))
+                return False
+            elif stall:
+                # clear stall (EP0 should stall once)
+                self.update_csr('ep0cs', clearbits=[0])
+                self.send_to_host(handshake_packet(PID.STALL))
+                return False
+            else:
+                # send empty data packet which means ACK
+                # STATUS stage always has DATA1 (USB 2.0, 8.5.3)
+                self.send_to_host(data_packet(PID.DATA1, []))
+                # no need to toggle data bit on ACK as status has always DATA1 (?)
+                self.ack_callback = None
+                # control transfer finished
+                self.ctrl_transfer = None; _dbg('* ctrl_transfer = None')
+                return True  # wait for ACK
 
         count = 0
         def expect_data_callback():
             length = self.armed_ep_lengths[ep]
-            if length is None:
+            if length is None and not is_status_stage:
                 return None
 
+            # at this moment we need one more cycle so that endpoint data gets propagated correclty
+            # FIXME: rewrite this to advance simulation after writing to ep buffer, instead of this counter
             nonlocal count
             if count == 0:
                 count += 1
@@ -358,6 +446,10 @@ class FX2USB:
             self.armed_ep_lengths[ep] = None
 
             if ep == 0:
+                # we are sending data IN in control transfer IN
+                assert self.ctrl_transfer == self.ControlTransferType.STATUS_OUT, \
+                    'Sending IN data on EP0, so this should be a control transfer with STATUS_OUT'
+
                 origin = _ram_areas['ep0inout'][0]
                 data = [xram_mem_get(self.dut, origin + i) for i in range(length)]
 
@@ -366,34 +458,35 @@ class FX2USB:
 
                 def ack_callback(pid):
                     if pid == PID.ACK:
-                        if toggle:
-                            self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
-                                                                clearbits=[ep2toggle_index(ep, io)])
-                        else:
-                            self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
-                                                                setbits=[ep2toggle_index(ep, io)])
+                        self.toggle_data_sync_bit(ep, io)
                 self.ack_callback = ack_callback
-
             else:
                 raise NotImplementedError('Endpoints other than 0 not implemented')
+
+            return None  # send_to_host() will change expect_data_callback to a new one
 
         _dbg('handle_token_in')
         self.expect_data_callback = expect_data_callback
 
-    def check_data_out_toggle(self, p):
+    def handle_data_out_toggle(self, p):
         tp = self.token_packet
         ep = tp.endp
         io = 0 if tp.pid == PID.OUT or tp.pid == PID.SETUP else 1
         toggle = testbit(self.dut.togctl_toggles, ep2toggle_index(ep, io))
         ok = (toggle and p.pid == PID.DATA1) or (not toggle and p.pid == PID.DATA0)
         if ok:
-            if toggle:
-                self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
-                                                    clearbits=[ep2toggle_index(ep, io)])
-            else:
-                self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles,
-                                                    setbits=[ep2toggle_index(ep, io)])
+            self.toggle_data_sync_bit(ep, io)
         return ok
+
+    def toggle_data_sync_bit(self, ep, io):
+        #  _dbg('toggle_data_sync_bit(%s, %s), self.dut.togctl_toggles = %s' \
+        #       % (ep, io, self.dut.togctl_toggles))
+        i = ep2toggle_index(ep, io)
+        toggle = testbit(self.dut.togctl_toggles, i)
+        if toggle:
+            self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles, clearbits=[i])
+        else:
+            self.dut.togctl_toggles = bitupdate(self.dut.togctl_toggles, setbits=[i])
 
     ### CPU register access monitor ############################################
 
@@ -402,15 +495,14 @@ class FX2USB:
         ep_len = lambda prefix: word(self.get_csr(prefix + 'h'), self.get_csr(prefix + 'l'))
         if ep == 0:
             length = ep_len('ep0bc')
+            # see xram_access_handler, this needs to be be fixed
             if hasattr(self, '_force_length') and self._force_length is not None:
                 length = self._force_length
                 self._force_length = None
             self.armed_ep_lengths[0] = length
-            print('self.armed_ep_lengths', end=' '); __import__('pprint').pprint(self.armed_ep_lengths)
             self.update_csr('ep0cs', setbits=[1])
         else:
             raise NotImplementedError('Endpoints other than 0 not implemented')
-
 
     def xram_access_handler(self, access):
         if access.ack:
@@ -428,47 +520,33 @@ class FX2USB:
 
             # automatic data copying when writing sudptrl
             if access.adr == self.csrs['sudptrl'] and access.we:
-                _dbg('SUDPTRL')
+                #  _dbg('SUDPTRL')
 
                 sdpauto = testbit(self.get_csr('sudptrctl'), 0)
-                if sdpauto:  # should get length from descriptors
-                    # the descriptor should be in our buffer
-                    adr_in = word(self.get_csr('sudptrh'), self.get_csr('sudptrl'))
-                    # first field should have length
-                    length = xram_mem_get(self.dut, adr_in)
-                    print('** length', end=' '); __import__('pprint').pprint(length)
+                if sdpauto:
+                    # automatically read length from SETUPDAT
+                    setupdat = setupdat_csr_to_bytes(self.get_csr('setupdat'))
+                    length = word(setupdat[7], setupdat[6])
+
                     # copy data to endpoint buffer
+                    # the descriptor should be pointed to by sudptr
+                    adr_in = word(self.get_csr('sudptrh'), self.get_csr('sudptrl'))
                     for i in range(length):
                         adr = _ram_areas['ep0inout'][0] + i
                         xram_mem_set(self.dut, adr, xram_mem_get(self.dut, adr_in + i))
+
                     # update length
                     self.set_csr('ep0bch', msb(length), immediate=True)
                     self.set_csr('ep0bcl', lsb(length), immediate=True)
                     self._force_length = length  # FIXME: we need to advance simulation or delay setting length
+
                 # now just arm endpoint
                 self.arm_endpoint(0)
 
             # endpoint arming TODO: rewrite this, its now obsolete
             if access.adr == self.csrs['ep0bcl'] and access.we:
-                _dbg('EP0BCL')
+                #  _dbg('EP0BCL')
                 self.arm_endpoint(0)
-                #  sdpauto = (self.get_csr('sudptrctl') & 0b1) != 0
-                #  if sdpauto:  # should get length from descriptors
-                #      wLength = (self.get_csr('setupdat') & (0xffff << 4 * 8)) >> 4 * 8
-                #      print('wLength', end=' '); __import__('pprint').pprint(wLength)
-                #  else:
-                #      self.armed_ep_lengths[0] = ep_len('ep0bc')
-                #      # TODO: what when EP has already been armed?
-                #  # set BUSY bit in EP0CS
-                #  self.update_csr('ep0cs', setbits=[1])
-
-            # arming endopoint due to clearing HSNAK
-            if access.adr == self.csrs['ep0cs'] and access.we:
-                _dbg('EP0CS')
-                # clearing HSNAK by writing 1
-                if testbit(access.dat_w, 7):
-                    self.arm_endpoint(0)
-
 
         # even without ack handle autopointers
         self.autopointers.handle_xram_access(access)
