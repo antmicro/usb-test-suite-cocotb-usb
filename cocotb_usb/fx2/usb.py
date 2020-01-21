@@ -523,14 +523,17 @@ class FX2USB:
                 #  _dbg('SUDPTRL')
 
                 sdpauto = testbit(self.get_csr('sudptrctl'), 0)
-                if sdpauto:
+                if sdpauto:  # TRM 2.3.4.1
                     # automatically read length from SETUPDAT
                     setupdat = setupdat_csr_to_bytes(self.get_csr('setupdat'))
-                    length = word(setupdat[7], setupdat[6])
-
-                    # copy data to endpoint buffer
+                    wLength = word(setupdat[7], setupdat[6])
+                    # ...and from in-memory descriptor
                     # the descriptor should be pointed to by sudptr
                     adr_in = word(self.get_csr('sudptrh'), self.get_csr('sudptrl'))
+                    bLength = xram_mem_get(self.dut, adr_in)
+                    # choose smaller length
+                    length = min(wLength, bLength)
+                    # copy data to endpoint buffer
                     for i in range(length):
                         adr = _ram_areas['ep0inout'][0] + i
                         xram_mem_set(self.dut, adr, xram_mem_get(self.dut, adr_in + i))
