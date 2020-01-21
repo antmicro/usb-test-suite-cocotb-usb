@@ -1,12 +1,14 @@
+import os
 from functools import reduce
 
 
 def _dbg(*args):
-    bold_white = '\033[1;37m'
-    clear = '\033[0m'
-    print(bold_white + '  ', end='')
-    print(args[0], end=clear)
-    print('', *args[1:])
+    if os.environ.get('FX2DEBUG', 0) == '1':
+        bold_white = '\033[1;37m'
+        clear = '\033[0m'
+        print(bold_white + '  ', end='')
+        print(args[0], end=clear)
+        print('', *args[1:])
 
 
 def bit(n):
