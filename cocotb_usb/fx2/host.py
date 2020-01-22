@@ -1,12 +1,11 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles, NullTrigger
+from cocotb.triggers import RisingEdge, Timer, ClockCycles, NullTrigger
 from cocotb.result import TestFailure
 from cocotb.utils import get_sim_time
 
 from cocotb_usb.usb.pid import PID
-from cocotb_usb.usb.packet import (wrap_packet, token_packet, data_packet,
-                                   sof_packet, handshake_packet)
+from cocotb_usb.usb.packet import wrap_packet, handshake_packet
 from cocotb_usb.usb.pp_packet import pp_packet
 
 from cocotb_usb.wishbone import WishboneMaster
@@ -37,7 +36,8 @@ class UsbTestFX2(UsbTest):
 
     @cocotb.coroutine
     def wait_cpu(self, clocks):
-        yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks, rising=True)
+        yield ClockCycles(self.dut.dut.oc8051_top.wb_clk_i, clocks,
+                          rising=True)
 
     @cocotb.coroutine
     def wait(self, time, units="us"):
@@ -84,7 +84,8 @@ class UsbTestFX2(UsbTest):
     @cocotb.coroutine
     def host_expect_packet(self, packet, msg=None):
         _dbg('<? %s' % decode_packet(packet))
-        result = yield self.fx2_usb.expect_device_packet(timeout=1e9) # 1ms max
+        # wait 1ms max
+        result = yield self.fx2_usb.expect_device_packet(timeout=1e9)
 
         if result is None:
             current = get_sim_time("us")

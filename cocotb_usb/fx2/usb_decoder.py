@@ -11,9 +11,9 @@ class DotDict(dict):
 def bitstr_to_num(bitstr):
     if not bitstr:
         return 0
-    l = list(bitstr)
-    l.reverse()
-    return int(''.join(l), 2)
+    bitlist = list(bitstr)
+    bitlist.reverse()
+    return int(''.join(bitlist), 2)
 
 
 def get_category(pidname):
@@ -29,8 +29,8 @@ def get_category(pidname):
 
 def decode_packet(packet):
     """
-    Decodes single packet in the format as passed to _host_send_packet() method.
-    Packet is a 'str' of '0' and '1', without SYNC field.
+    Decodes single packet in the format as passed to _host_send_packet()
+    method. Packet is a 'str' of '0' and '1', without SYNC field.
     """
     # use dictionary, as depending on PID we will have different fields
     decoded = DotDict()
@@ -40,7 +40,8 @@ def decode_packet(packet):
     pid = PID(int(pid[:4][::-1], 2))  # convert to int, then to PID
     decoded.pid = pid
 
-    # add dummy SYNC bits to packet so that idicies are consistent with real ones
+    # add dummy SYNC bits to packet so that its idicies are consistent with the
+    # real ones
     packet = (8 * '0') + packet
 
     if pid in (PID.OUT, PID.IN, PID.SOF, PID.SETUP, PID.PING):
@@ -58,7 +59,8 @@ def decode_packet(packet):
     elif pid in (PID.DATA0, PID.DATA1, PID.DATA2, PID.MDATA):
         # Bits[16:packetlen-16]: Data
         data = packet[16:-16]
-        assert len(data) % 8 == 0, 'len(data) (= %d) must be a multiple of 8.' % (len(data))
+        assert len(data) % 8 == 0, \
+            'len(data) (= %d) must be a multiple of 8.' % (len(data))
 
         databytes = []
         for i in range(0, len(data), 8):

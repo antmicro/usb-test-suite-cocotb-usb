@@ -1,4 +1,3 @@
-import enum
 from collections import namedtuple
 
 import cocotb
@@ -24,7 +23,8 @@ class ExternalRAMMonitor(BusMonitor):
         super().__init__(*[dut, *args], **kwargs)
 
         # convert all the single addresses to tuples
-        self.adr_spec = [a if isinstance(a, tuple) else (a, a) for a in adr_spec]
+        self.adr_spec = [a if isinstance(a, tuple) else (a, a)
+                         for a in adr_spec]
 
         self.wb_adr = self.dut.wishbone_cpu_adr
         self.wb_dat_r = self.dut.wishbone_cpu_dat_r
@@ -42,10 +42,12 @@ class ExternalRAMMonitor(BusMonitor):
         while True:
             yield RisingEdge(self.dut.sys_clk)
 
-            # send even without ack, so that handler can do something when read is issued, before an ack
+            # send even without ack, so that handler can do something when
+            # read is issued, before an ack
             if self.wb_cyc == 1 and self.wb_stb == 1:
                 adr, dat_r, dat_w, we, ack = \
-                    map(int, (self.wb_adr, self.wb_dat_r, self.wb_dat_w, self.wb_we, self.wb_ack))
+                    map(int, (self.wb_adr, self.wb_dat_r, self.wb_dat_w,
+                              self.wb_we, self.wb_ack))
                 if self.is_in_spec(adr):
                     self._recv(self.Access(adr, dat_r, dat_w, we, ack))
 
@@ -107,7 +109,8 @@ FX2_SFRS = {
     'EIE':            0xe8,
     'EIP':            0xf8,
 }
-# create the reverse mapping (types are different so there will be no conflicts)
+# create the reverse mapping
+# (types are different so there will be no conflicts)
 FX2_SFRS.update({adr: name for name, adr in FX2_SFRS.items()})
 
 
@@ -157,14 +160,17 @@ class SFRMonitor(BusMonitor):
             'RWS_B':  0b111,  # b register
         }
         rd_sel_direct = [rd_addressing['RRS_D']]
-        wr_sel_direct = [wr_addressing[i] for i in ['RWS_D', 'RWS_D1', 'RWS_D3']]
+        wr_sel_direct = [wr_addressing[i]
+                         for i in ['RWS_D', 'RWS_D1', 'RWS_D3']]
 
-        is_sfr_adr = lambda adr: 0x80 <= adr <= 0xff
+        def is_sfr_adr(adr):
+            return 0x80 <= adr <= 0xff
 
         while True:
             yield RisingEdge(top.wb_clk_i)
 
-            # pass objects to self.Access so that handler can modify them (for read)
+            # pass objects to self.Access so that handler can modify them (for
+            # read)
             wr_sel = decoder.ram_wr_sel
             rd_sel = decoder.ram_rd_sel
             wr_addr = mem.wr_addr
@@ -172,16 +178,12 @@ class SFRMonitor(BusMonitor):
             # it seems that dat1 is used as input and dat0 as output
             # for all SFRs, but that may not be always True
 
-            had_wr_access = False
-            had_rd_access = False
-
             if int(wr_sel) in wr_sel_direct and is_sfr_adr(int(wr_addr)):
                 wr_data = sfr.dat1
                 access = self.Access(adr=wr_addr, data=wr_data,
                                      sfr=FX2_SFRS.get(int(wr_addr), None),
                                      is_write=True)
                 self._recv(access)
-                had_wr_access = True
 
             if int(rd_sel) in rd_sel_direct and is_sfr_adr(int(rd_addr)):
                 rd_data = sfr.dat0
@@ -189,4 +191,3 @@ class SFRMonitor(BusMonitor):
                                      sfr=FX2_SFRS.get(int(rd_addr), None),
                                      is_write=False)
                 self._recv(access)
-                had_rd_access = True

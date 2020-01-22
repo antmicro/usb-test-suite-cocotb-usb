@@ -38,23 +38,29 @@ def bitupdate(reg, *, set=None, clear=None, clearbits=None, setbits=None):
     reg:       original value
     set:       bitmask of values to be set
     clear:     bitmask of values to be cleared
-    setbits:   list of bit offsets to use for constructing `set` mask (`set` must be None)
-    clearbits: list of bit offsets to use for constructing `clear` mask (`clear` must be None)
+    setbits:   list of bit offsets to use for constructing `set` mask (`set`
+               must be None)
+    clearbits: list of bit offsets to use for constructing `clear` mask
+               (`clear` must be None)
     """
     # convert bit lists to masks
-    bitsmask = lambda bits: reduce(lambda p, q: p | q, ((1 << b) for b in bits))
+    def bitsmask(bits):
+        return reduce(lambda p, q: p | q, ((1 << b) for b in bits))
+
     if clearbits:
         assert clear is None, "'clear' must not be used when using 'clearbits'"
         clear = bitsmask(clearbits)
     if setbits:
         assert set is None, "'set' must not be used when using 'setbits'"
         set = bitsmask(setbits)
-    # set default values, assert when nothing happens (we don't use this function if need no change)
+    # set default values, assert when nothing happens
+    # (we don't use this function if need no change)
     assert set is not None or clear is not None, 'Nothing to set/clear'
     set = 0 if set is None else set
     clear = 0 if clear is None else clear
     # clear and set mask overlap
-    assert (set & clear) == 0, 'Bit masks overlap: set(%s) clear(%s)' % (bin(set), bin(clear))
+    assert (set & clear) == 0, \
+        'Bit masks overlap: set(%s) clear(%s)' % (bin(set), bin(clear))
     # perform bit operation
     reg = (int(reg) & (~clear)) | set
     return reg
