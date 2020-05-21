@@ -1,3 +1,4 @@
+import inspect
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, Timer, ClockCycles
@@ -57,9 +58,9 @@ class UsbTest:
                                   clk_period=self.clock_period)
 
         # Set the signal "test_name" to match this test
-        import inspect
+        test_name = kwargs.get('test_name', inspect.stack()[2][3])
         tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
-        tn.buff = inspect.stack()[2][3]
+        tn.buff = test_name
         self.dut.test_name = tn
 
     @cocotb.coroutine
