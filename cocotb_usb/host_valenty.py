@@ -12,6 +12,7 @@ from cocotb_usb.utils import grouper_tofit, parse_csr, assertEqual
 from cocotb_usb.host import UsbTest
 import inspect
 
+
 class UsbTestValenty(UsbTest):
     """Class for testing ValentyUSB IP core.
     Includes functions to communicate and generate responses without a CPU,
