@@ -10,6 +10,7 @@ from cocotb_usb.usb.packet import crc16
 from cocotb_usb.utils import grouper_tofit, parse_csr, assertEqual
 
 from cocotb_usb.host import UsbTest
+import inspect
 
 
 class UsbTestValenty(UsbTest):
@@ -32,6 +33,7 @@ class UsbTestValenty(UsbTest):
         self.wb = WishboneMaster(dut, "wishbone", dut.clk12, timeout=20)
         self.csrs = dict()
         self.csrs = parse_csr(csr_file)
+        kwargs['test_name'] = inspect.stack()[2][3]
         super().__init__(dut, **kwargs)
 
     @cocotb.coroutine
