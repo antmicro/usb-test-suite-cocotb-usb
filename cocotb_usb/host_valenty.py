@@ -34,24 +34,21 @@ class UsbTestValenty(UsbTest):
         # Define the sys clock, as well as a factor used to wait longer
         # when running with a faster clock
         if cdc:
-            self.clk_sys = dut.clk100
+            dut._log.info("CDC is enabled")
+            self.clk_sys = dut.clksys
             self.clk_factor = 9
+            self.clock_100_period = 10000
+            cocotb.fork(Clock(dut.clksys, self.clock_100_period, 'ps').start())
         else:
             self.clk_sys = dut.clk12
             self.clk_factor = 1
+            dut._log.info("CDC is DISABLED")
 
         self.wb = WishboneMaster(dut, "wishbone", self.clk_sys, timeout=20)
         self.csrs = dict()
         self.csrs = parse_csr(csr_file)
         kwargs['test_name'] = inspect.stack()[2][3]
         super().__init__(dut, **kwargs)
-
-        if cdc:
-            self.dut._log.info("CDC is enabled")
-            self.clock_100_period = 10000
-            cocotb.fork(Clock(dut.clk100, self.clock_100_period, 'ps').start())
-        else:
-            self.dut._log.info("CDC is DISABLED")
 
     @cocotb.coroutine
     def reset(self):
@@ -436,9 +433,11 @@ class UsbTestValenty(UsbTest):
         yield self.transaction_status_out(addr, epaddr_out)
         yield RisingEdge(self.dut.clk12)
 
-        yield RisingEdge(self.clk_sys) # more time to percolate the event through synchronizers
-        yield RisingEdge(self.clk_sys) # before clearing it
-        yield RisingEdge(self.clk_sys) # this is for CDC implementations
+        # Give it more time to percolate the event through synchronizers
+        # before clearing it. This is for CDC implementations.
+        yield RisingEdge(self.clk_sys)
+        yield RisingEdge(self.clk_sys)
+        yield RisingEdge(self.clk_sys)
 
         out_ev = yield self.read(self.csrs['usb_out_ev_pending'])
         yield self.write(self.csrs['usb_out_ctrl'], 0x20)  # Reset FIFO
