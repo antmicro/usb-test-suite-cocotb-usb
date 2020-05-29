@@ -12,7 +12,8 @@ def get_harness(dut, **kwargs):
     '''
     if TARGET == 'valentyusb':
         dut_csrs = environ['DUT_CSRS']  # We want a KeyError if this is unset
-        harness = UsbTestValenty(dut, dut_csrs, **kwargs)
+        cdc = int(environ['TEST_CDC'])  # We want a KeyError if this is unset
+        harness = UsbTestValenty(dut, dut_csrs, cdc, **kwargs)
     else:  # No target matched
         harness = UsbTest(dut, **kwargs)  # base class
     return harness
