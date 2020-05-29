@@ -71,9 +71,9 @@ class UsbTest:
         self.dut.usb_d_n = 0
         self.address = 0
 
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 50, rising=True)
         self.dut.reset = 0
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 50, rising=True)
 
     @cocotb.coroutine
     def wait(self, time, units="us"):
@@ -268,7 +268,7 @@ class UsbTest:
         actual = pp_packet(result)
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
         if (actual == nak) and (expected != nak):
-            self.dut._log.warn("Got NAK, retry")
+            self.dut._log.warning("Got NAK, retry")
             yield Timer(self.RETRY_INTERVAL, 'us')
             return
         else:
