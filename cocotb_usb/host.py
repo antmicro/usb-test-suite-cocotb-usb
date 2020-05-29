@@ -71,9 +71,9 @@ class UsbTest:
         self.dut.usb_d_n = 0
         self.address = 0
 
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 50, rising=True)
         self.dut.reset = 0
-        yield ClockCycles(self.dut.clk48_host, 10, rising=True)
+        yield ClockCycles(self.dut.clk48_host, 50, rising=True)
 
     @cocotb.coroutine
     def wait(self, time, units="us"):
