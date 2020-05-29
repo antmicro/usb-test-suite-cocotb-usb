@@ -268,7 +268,7 @@ class UsbTest:
         actual = pp_packet(result)
         nak = pp_packet(wrap_packet(handshake_packet(PID.NAK)))
         if (actual == nak) and (expected != nak):
-            self.dut._log.warn("Got NAK, retry")
+            self.dut._log.warning("Got NAK, retry")
             yield Timer(self.RETRY_INTERVAL, 'us')
             return
         else:
