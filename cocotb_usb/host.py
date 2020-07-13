@@ -59,8 +59,7 @@ class UsbTest:
 
         # Set the signal "test_name" to match this test
         test_name = kwargs.get('test_name', inspect.stack()[2][3])
-        tn = cocotb.binary.BinaryValue(value=None, n_bits=4096)
-        tn.buff = test_name
+        tn = cocotb.binary.BinaryValue(value=test_name.encode(), n_bits=4096)
         self.dut.test_name = tn
 
     @cocotb.coroutine
