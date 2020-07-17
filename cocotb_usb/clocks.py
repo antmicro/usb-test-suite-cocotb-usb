@@ -24,10 +24,10 @@ class UnstableTrigger(GPITrigger):
     def prime(self, callback):
         """Register for a timed callback."""
         steps = self.sim_steps + randint(-self.delta_neg, self.delta_pos)
-        if self.cbhdl == 0:
+        if self.cbhdl is None:
             self.cbhdl = simulator.register_timed_callback(
                 steps, callback, self)
-            if self.cbhdl == 0:
+            if self.cbhdl is None:
                 raise TriggerException("Unable set up %s Trigger" %
                                        (str(self)))
         GPITrigger.prime(self, callback)
